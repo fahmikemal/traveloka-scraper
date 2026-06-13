@@ -1,0 +1,11 @@
+playwright
+pandas
+numpy
+scikit-learn
+nltk
+PySastrawi
+openpyxl
+matplotlib
+seaborn
+wordcloud
+tqdm
