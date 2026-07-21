@@ -126,6 +126,29 @@ LABEL_MAP    = {0: "negatif", 1: "netral", 2: "positif"}
 # di situ banyak keluhan muncul.
 QUERY_FILTER = "-from:traveloka"
 
+# ── Akun korporat yang harus dikeluarkan ──
+#
+# Objek penelitian ini adalah sentimen PELANGGAN. Akun bank, telekomunikasi,
+# transportasi, dan afiliasi promo memuat teks pemasaran, bukan pengalaman
+# pengguna. Pada uji 21 Juli 2026, akun-akun ini menyumbang 12,1% dokumen
+# dan 86 di antaranya berlabel positif -- yaitu 18% dari seluruh kelas
+# positif berasal dari iklan, bukan opini pelanggan.
+#
+# Dampaknya langsung ke rumusan masalah "kecenderungan sentimen dominan":
+# tanpa filter ini, kesimpulan penelitian menghitung iklan sebagai kepuasan.
+CORPORATE_ACCOUNTS = {
+    # perbankan
+    "@bni", "@maybankid", "@mandiricard", "@bankmandiri", "@kontakbri",
+    "@promo_bri", "@bankbri_id", "@bankbtn", "@halobca", "@bcasyariah",
+    "@digibankid", "@bankbtpn", "@cimb_niaga", "@ocbc_indonesia",
+    "@permatabank", "@danamon",
+    # telekomunikasi & transportasi
+    "@indosatim3", "@telkomsel", "@kai121", "@xlaxiata", "@smartfrenworld",
+    # e-commerce, promo & afiliasi
+    "@berburusales", "@txtdarionlshop", "@infomalang", "@shopee_id",
+    "@tokopedia", "@bukalapak", "@gojekindonesia", "@grabid",
+}
+
 
 # ──────────────────────────────────────────────────────────
 #  STEP 2 — SCRAPING
@@ -644,7 +667,9 @@ def _detect_lang(text):
         return "unknown", 0.0
 
 
-def step_preprocess(input_file, filter_lang=True, lang_conf=0.70, normalize=True):
+def step_preprocess(input_file, filter_lang=True, lang_conf=0.70,
+                    normalize=True, filter_relevance=True,
+                    filter_corporate=True, max_per_author=None):
     import pandas as pd
     from nltk.tokenize import word_tokenize
     from tqdm import tqdm
@@ -710,6 +735,55 @@ def step_preprocess(input_file, filter_lang=True, lang_conf=0.70, normalize=True
             print(f"\n  PERINGATAN: hanya {len(df)} dokumen Indonesia tersisa.")
             print("  Ini terlalu sedikit untuk klasifikasi 3 kelas yang andal.")
             print("  Scrape lebih banyak data sebelum menarik kesimpulan.")
+
+    # ── Filter relevansi objek penelitian ──
+    # Pencarian X mencocokkan KATA PER KATA, bukan frasa utuh. Query seperti
+    # "traveloka bayar" ikut menangkap tweet yang hanya memuat "bayar",
+    # sehingga masuk dokumen yang sama sekali tidak membahas Traveloka
+    # (mis. layanan pelanggan bank lain, iklan properti).
+    #
+    # Objek penelitian ini adalah sentimen TERHADAP TRAVELOKA, jadi dokumen
+    # yang tidak menyebut Traveloka tidak dapat dinilai sentimennya terhadap
+    # Traveloka.
+    #
+    # Batas yang harus diakui: X memotong tweet panjang, dan balasan dalam
+    # sebuah thread sering tidak mengulang nama merek. Sebagian dokumen yang
+    # sebenarnya relevan ikut terbuang. Ini konsekuensi yang dipilih secara
+    # sadar demi memastikan setiap dokumen benar-benar membahas objek kajian.
+    if filter_relevance:
+        sebelum = len(df)
+        pola = r"traveloka|tvlk"
+        df = df[df["text"].astype(str).str.contains(pola, case=False, na=False)]
+        dibuang = sebelum - len(df)
+        print(f"\n  Filter relevansi : buang {dibuang} dokumen "
+              f"({dibuang / max(sebelum, 1) * 100:.1f}%) yang tidak menyebut Traveloka")
+        print(f"  Tersisa          : {len(df)} baris")
+
+    # ── Buang akun korporat ──
+    if filter_corporate and "username" in df.columns:
+        sebelum = len(df)
+        akun = df["username"].astype(str).str.lower().str.strip()
+        df = df[~akun.isin(CORPORATE_ACCOUNTS)]
+        dibuang = sebelum - len(df)
+        print(f"\n  Filter akun korporat : buang {dibuang} dokumen "
+              f"({dibuang / max(sebelum, 1) * 100:.1f}%) dari akun bank/promo")
+        print(f"  Tersisa              : {len(df)} baris")
+
+    # ── Batasi dokumen per penulis ──
+    # Pada penambangan opini, satu orang seharusnya tidak mewakili banyak
+    # suara. Tanpa pembatasan, akun yang aktif memposting dapat mendominasi
+    # distribusi kelas dan membuat "kecenderungan sentimen" mencerminkan
+    # kebiasaan segelintir penulis, bukan opini publik.
+    if max_per_author and "username" in df.columns:
+        sebelum = len(df)
+        df = (df.sort_values("date")
+                .groupby("username", group_keys=False)
+                .head(max_per_author))
+        dibuang = sebelum - len(df)
+        print(f"\n  Batas {max_per_author} dokumen/penulis : buang {dibuang} dokumen "
+              f"({dibuang / max(sebelum, 1) * 100:.1f}%)")
+        print(f"  Tersisa                : {len(df)} baris "
+              f"dari {df['username'].nunique()} penulis")
 
     # ── Normalisasi slang ──
     # Dijalankan SETELAH deteksi bahasa: kamus slang hanya valid untuk teks
@@ -1482,6 +1556,12 @@ def main():
                         help="Gabungkan SEMUA file di data/raw/ saat --preprocess")
     parser.add_argument("--headless",     action="store_true",
                         help="Jalankan browser tanpa tampilan (untuk server)")
+    parser.add_argument("--max-per-author", type=int, default=None, metavar="N",
+                        help="Batasi N dokumen per penulis (mis. 3)")
+    parser.add_argument("--no-corporate-filter", action="store_true",
+                        help="Jangan buang dokumen dari akun bank/promo")
+    parser.add_argument("--no-relevance-filter", action="store_true",
+                        help="Jangan buang dokumen yang tidak menyebut Traveloka")
     parser.add_argument("--no-normalize", action="store_true",
                         help="Jangan normalisasi slang ke kata baku")
     parser.add_argument("--no-lang-filter", action="store_true",
@@ -1519,8 +1599,12 @@ def main():
             src = raw_file or args.input or latest_file(RAW_DATA_DIR, "traveloka_raw_*.csv")
             if not src:
                 sys.exit("ERROR: Tidak ada file raw. Jalankan --scrape dulu atau berikan --input.")
-        processed_file = step_preprocess(src, filter_lang=not args.no_lang_filter,
-                                         normalize=not args.no_normalize)
+        processed_file = step_preprocess(
+            src, filter_lang=not args.no_lang_filter,
+            normalize=not args.no_normalize,
+            filter_relevance=not args.no_relevance_filter,
+            filter_corporate=not args.no_corporate_filter,
+            max_per_author=args.max_per_author)
 
     # ── AUTO LABEL ──
     if args.autolabel:
