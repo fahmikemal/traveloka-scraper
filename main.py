@@ -1138,6 +1138,61 @@ def _cv_no_leak(pipeline, X, y, random_state, n_splits=10):
     return float(np.mean(scores)), float(np.std(scores))
 
 
+def _mcnemar(y_true, pred_a, pred_b):
+    """Uji McNemar eksak: apakah selisih dua model bermakna atau kebetulan?
+
+    Hanya melihat kasus di mana kedua model BERBEDA hasilnya:
+        b = model A benar, model B salah
+        c = model A salah, model B benar
+    Di bawah hipotesis nol (kedua model sama baiknya), b mengikuti sebaran
+    binomial B(b+c, 0.5). Versi eksak dipakai karena n kecil.
+
+    Referensi: McNemar (1947); Dietterich (1998) merekomendasikannya untuk
+    membandingkan dua pengklasifikasi pada data uji yang sama.
+    """
+    from scipy.stats import binomtest
+
+    import numpy as np
+    y = np.asarray(y_true)
+    a_benar = np.asarray(pred_a) == y
+    b_benar = np.asarray(pred_b) == y
+    b = int((a_benar & ~b_benar).sum())
+    c = int((~a_benar & b_benar).sum())
+    if b + c == 0:
+        return b, c, 1.0
+    return b, c, float(binomtest(b, b + c, 0.5).pvalue)
+
+
+def _bootstrap_ci(y_true, y_pred, n_boot=2000, alpha=0.05, random_state=42):
+    """Interval kepercayaan macro-F1 lewat bootstrap persentil.
+
+    Data uji diambil ulang dengan pengembalian sebanyak n_boot kali; macro-F1
+    dihitung tiap kali, lalu diambil persentil 2.5 dan 97.5.
+
+    Perlu karena satu angka macro-F1 tanpa interval tidak memberi tahu
+    seberapa besar ketidakpastiannya -- pada data uji kecil, interval ini
+    biasanya lebar, dan itu informasi yang jujur.
+    """
+    import numpy as np
+    from sklearn.metrics import f1_score
+
+    rng = np.random.default_rng(random_state)
+    y = np.asarray(y_true)
+    p = np.asarray(y_pred)
+    n = len(y)
+    skor = []
+    for _ in range(n_boot):
+        idx = rng.integers(0, n, n)
+        if len(np.unique(y[idx])) < 2:      # lewati sampel degenerate
+            continue
+        skor.append(f1_score(y[idx], p[idx], average="macro", zero_division=0))
+    if not skor:
+        return float("nan"), float("nan")
+    lo = float(np.percentile(skor, 100 * alpha / 2))
+    hi = float(np.percentile(skor, 100 * (1 - alpha / 2)))
+    return lo, hi
+
+
 def step_train(input_file, test_size=0.2, random_state=42):
     import pandas as pd
     import matplotlib
@@ -1232,7 +1287,7 @@ def step_train(input_file, test_size=0.2, random_state=42):
         ("ComplementNB",  ComplementNB()),
     ]
 
-    rows, artifacts = [], []
+    rows, artifacts, prediksi = [], [], {}
     for name, estimator in candidates:
         print("\n" + "=" * 55)
         print(f"MODEL: {name}")
@@ -1287,8 +1342,13 @@ def step_train(input_file, test_size=0.2, random_state=42):
         with open(mdl_path, "wb") as f:
             pickle.dump(model, f)
 
+        ci_lo, ci_hi = _bootstrap_ci(y_test, y_pred, random_state=random_state)
+        print(f"Macro-F1 95% CI: [{ci_lo:.4f}, {ci_hi:.4f}]  (bootstrap 2000x)")
+        prediksi[name] = y_pred
+
         rows.append({
             "timestamp": timestamp, "model": name,
+            "macro_f1_ci_low": round(ci_lo, 4), "macro_f1_ci_high": round(ci_hi, 4),
             "total_data": len(df), "train_size": len(X_train),
             "test_size": len(X_test), "best_alpha": best_alpha,
             "accuracy": round(acc, 4), "macro_f1": round(f1_mac, 4),
@@ -1300,6 +1360,27 @@ def step_train(input_file, test_size=0.2, random_state=42):
             "baseline_macro_f1": round(base_f1m, 4),
         })
         artifacts.append((name, mdl_path, cm_path))
+
+    # ── Uji signifikansi: apakah selisih kedua model bermakna? ──
+    if len(prediksi) == 2:
+        (na, pa), (nb, pb) = list(prediksi.items())
+        b, c, pval = _mcnemar(y_test, pa, pb)
+        print("\n" + "=" * 55)
+        print("UJI SIGNIFIKANSI (McNemar eksak)")
+        print("=" * 55)
+        print(f"{na} benar & {nb} salah : {b}")
+        print(f"{na} salah & {nb} benar : {c}")
+        print(f"p-value                 : {pval:.4f}")
+        if pval < 0.05:
+            unggul = na if b > c else nb
+            print(f"-> Selisih BERMAKNA secara statistik (p < 0.05). {unggul} lebih baik.")
+        else:
+            print("-> Selisih TIDAK bermakna (p >= 0.05). Perbedaan angka kedua")
+            print("   model masih dapat dijelaskan oleh kebetulan; jangan diklaim")
+            print("   sebagai keunggulan salah satu metode.")
+        for r in rows:
+            r["mcnemar_b"] = b; r["mcnemar_c"] = c
+            r["mcnemar_p"] = round(pval, 4)
 
     metrics_path = os.path.join(RESULTS_DIR, f"metrics_{timestamp}.csv")
     pd.DataFrame(rows).to_csv(metrics_path, index=False, encoding="utf-8-sig")
