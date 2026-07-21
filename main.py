@@ -1297,6 +1297,23 @@ def step_train(input_file, test_size=0.2, random_state=42, compare=False):
             "Tambahkan kolom label (0=negatif, 1=netral, 2=positif) secara manual."
         )
 
+    # ── Pengaman: jangan diam-diam melatih pada label lexicon ──
+    # Pelabelan lexicon pada korpus ini terbukti tidak valid
+    # (Cohen's Kappa 0,055 terhadap 588 anotasi manusia; kecocokan 31,3%).
+    # Berkas hasil --autolabel selalu memuat kolom 'sentiment_score', sehingga
+    # dapat dibedakan dari berkas berlabel manusia.
+    if "sentiment_score" in df.columns:
+        print("\n" + "!" * 60)
+        print("PERINGATAN: berkas ini berlabel LEXICON, bukan label manusia.")
+        print("Pada penelitian ini pelabelan lexicon terukur tidak valid")
+        print("(Cohen's Kappa 0,055). Model yang dilatih di atasnya hanya")
+        print("meniru lexicon, dan hasilnya TIDAK dapat dipakai sebagai")
+        print("kesimpulan penelitian.")
+        print("\nGunakan berkas berlabel manusia, mis.:")
+        print("  --labeled data/labeled/final_manual_588_labeled.csv")
+        print("Atau lakukan validasi dulu: --sample-gold lalu label_manual.py")
+        print("!" * 60 + "\n")
+
     df = df.dropna(subset=["stemmed_text", "label"])
     df = df[df["stemmed_text"].str.strip() != ""]
     df["label"] = df["label"].astype(int)

@@ -185,7 +185,21 @@ Untuk melewati normalisasi slang: tambahkan `--no-normalize`
 
 ---
 
-### STEP 3 — Auto Labeling (InSet)
+### STEP 3 — Pra-anotasi Lexicon (InSet)
+
+> **PENTING — hasil validasi pada penelitian ini.** Pelabelan lexicon
+> diuji terhadap 588 dokumen berlabel manusia dan memperoleh
+> **Cohen's Kappa = 0,055** (kecocokan 31,3%) — tergolong *slight* menurut
+> Landis & Koch. Penyetelan ambang tidak menolong: 10 nilai diuji, terbaik
+> hanya κ = 0,105.
+>
+> Akibatnya lexicon **tidak dipakai sebagai sumber label penelitian**.
+> Perannya berubah menjadi (a) objek yang dievaluasi, dan (b) usulan
+> pra-anotasi yang mempercepat pelabelan manual.
+>
+> Label untuk pelatihan model berasal dari anotasi manusia
+> (`data/labeled/final_manual_588_labeled.csv`). `--train` akan menampilkan
+> peringatan bila diberi berkas berlabel lexicon.
 
 ```bash
 python main.py --autolabel
