@@ -563,6 +563,54 @@ def _clean(text):
     return re.sub(r"\s+", " ", text).strip()
 
 
+# Istilah domain yang TIDAK boleh dinormalisasi. Kamus Alay bersifat umum,
+# sehingga beberapa singkatan domain justru salah diterjemahkan:
+#   "cs"  -> "rekan"   (padahal customer service)
+#   "apk" -> "apakah"  (padahal aplikasi)
+PROTECTED_TERMS = {
+    "cs", "apk", "apl", "app", "refund", "booking", "paylater", "voucher",
+    "promo", "reschedule", "checkin", "checkout", "cancel", "traveloka",
+    "tvlk", "admin", "transfer", "saldo", "invoice", "etiket",
+}
+
+
+def _load_slang():
+    """Muat kamus normalisasi slang -> kata baku (Kamus Alay).
+
+    Sumber: Ibrohim & Budi (2019), dikumpulkan AI Lab Telkom University pada
+    daftar sumber daya NLP Bahasa Indonesia. Berisi 15.167 pemetaan.
+
+    Alasan dipakai: InSet berisi kata BAKU, sedangkan tweet penuh singkatan
+    ("bgt", "gk", "yg"). Tanpa normalisasi, banyak kata bersentimen tidak
+    terdeteksi lexicon sehingga dokumennya salah dilabeli netral.
+
+    Bonus: 75 varian slang ("g", "ga", "gak", "gk", "enggak", ...) dipetakan
+    ke "tidak"/"bukan"/"jangan", sehingga penanganan negasi ikut menguat.
+    """
+    import csv as _csv
+
+    path = os.path.join(LEXICON_DIR, "kamus_alay.tsv")
+    if not os.path.exists(path):
+        return {}
+    slang = {}
+    with open(path, encoding="utf-8") as f:
+        for i, row in enumerate(_csv.reader(f, delimiter="\t")):
+            if i == 0 or len(row) < 2:
+                continue
+            k, v = row[0].strip().lower(), row[1].strip().lower()
+            # Lewati kunci 1 huruf: terlalu agresif, mudah salah ganti
+            if len(k) > 1 and k != v and k not in PROTECTED_TERMS:
+                slang[k] = v
+    return slang
+
+
+def _normalize_slang(text, slang):
+    """Ganti kata slang dengan bentuk bakunya, per token."""
+    if not slang:
+        return text
+    return " ".join(slang.get(t, t) for t in str(text).split())
+
+
 def _detect_lang(text):
     """Deteksi bahasa satu dokumen. Mengembalikan (kode_bahasa, kepercayaan)."""
     from langdetect import detect_langs
@@ -577,7 +625,7 @@ def _detect_lang(text):
         return "unknown", 0.0
 
 
-def step_preprocess(input_file, filter_lang=True, lang_conf=0.70):
+def step_preprocess(input_file, filter_lang=True, lang_conf=0.70, normalize=True):
     import pandas as pd
     from nltk.tokenize import word_tokenize
     from tqdm import tqdm
@@ -643,6 +691,25 @@ def step_preprocess(input_file, filter_lang=True, lang_conf=0.70):
             print(f"\n  PERINGATAN: hanya {len(df)} dokumen Indonesia tersisa.")
             print("  Ini terlalu sedikit untuk klasifikasi 3 kelas yang andal.")
             print("  Scrape lebih banyak data sebelum menarik kesimpulan.")
+
+    # ── Normalisasi slang ──
+    # Dijalankan SETELAH deteksi bahasa: kamus slang hanya valid untuk teks
+    # Indonesia, dan menerapkannya lebih dulu akan mengacaukan dokumen asing
+    # sebelum sempat disaring.
+    if normalize:
+        slang = _load_slang()
+        if slang:
+            tqdm.pandas(desc="  Normalisasi")
+            sebelum = df["clean_text"].copy()
+            df["clean_text"] = df["clean_text"].progress_apply(
+                lambda t: _normalize_slang(t, slang)
+            )
+            berubah = int((sebelum != df["clean_text"]).sum())
+            print(f"\n  Kamus slang    : {len(slang)} pemetaan")
+            print(f"  Dokumen berubah: {berubah}/{len(df)} "
+                  f"({berubah / max(len(df), 1) * 100:.1f}%)")
+        else:
+            print("\n  (lexicon/kamus_alay.tsv tidak ada - normalisasi dilewati)")
 
     def full_process(text):
         tokens  = word_tokenize(text)
@@ -1304,6 +1371,8 @@ def main():
                         help="Gabungkan SEMUA file di data/raw/ saat --preprocess")
     parser.add_argument("--headless",     action="store_true",
                         help="Jalankan browser tanpa tampilan (untuk server)")
+    parser.add_argument("--no-normalize", action="store_true",
+                        help="Jangan normalisasi slang ke kata baku")
     parser.add_argument("--no-lang-filter", action="store_true",
                         help="Jangan buang dokumen non-Indonesia (TIDAK disarankan)")
 
@@ -1339,7 +1408,8 @@ def main():
             src = raw_file or args.input or latest_file(RAW_DATA_DIR, "traveloka_raw_*.csv")
             if not src:
                 sys.exit("ERROR: Tidak ada file raw. Jalankan --scrape dulu atau berikan --input.")
-        processed_file = step_preprocess(src, filter_lang=not args.no_lang_filter)
+        processed_file = step_preprocess(src, filter_lang=not args.no_lang_filter,
+                                         normalize=not args.no_normalize)
 
     # ── AUTO LABEL ──
     if args.autolabel:

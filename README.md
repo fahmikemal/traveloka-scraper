@@ -156,9 +156,11 @@ Proses yang dijalankan:
 2. Hapus karakter non-ASCII, angka, dan tanda baca
 3. Lowercase
 4. **Filter bahasa** — buang dokumen non-Indonesia (langdetect, confidence >= 0.70)
-5. Tokenisasi
-6. Hapus stopword — **kata negasi sengaja DIPERTAHANKAN**
-7. Stemming dengan PySastrawi
+5. **Normalisasi slang** — ubah singkatan ke bentuk baku (`bgt` -> `banget`,
+   `gk` -> `tidak`) memakai Kamus Alay, 15.115 pemetaan
+6. Tokenisasi
+7. Hapus stopword — **kata negasi sengaja DIPERTAHANKAN**
+8. Stemming dengan PySastrawi
 
 Hasil: `data/processed/`
 
@@ -166,7 +168,20 @@ Hasil: `data/processed/`
 > yang dibuang. Kalau data Indonesia tersisa < 300, akan muncul peringatan —
 > scrape lagi sebelum melanjutkan.
 
-Untuk melewati filter bahasa (**tidak disarankan**): tambahkan `--no-lang-filter`
+Untuk melewati filter bahasa (**tidak disarankan**): tambahkan `--no-lang-filter`  
+Untuk melewati normalisasi slang: tambahkan `--no-normalize`
+
+> **Mengapa normalisasi slang penting.** InSet berisi kata **baku**, sedangkan
+> tweet penuh singkatan. Tanpa normalisasi, `"gk bgs"` tidak terdeteksi lexicon
+> dan dokumennya salah dilabeli netral. Setelah normalisasi menjadi
+> `"tidak bagus"`, skornya **−7 (negatif)** — lengkap dengan pembalikan negasi.
+>
+> Normalisasi dijalankan **setelah** filter bahasa, karena kamus slang hanya
+> valid untuk teks Indonesia.
+>
+> Kamus Alay bersifat umum sehingga beberapa singkatan domain justru salah
+> diterjemahkan (`cs` → `rekan`, `apk` → `apakah`). Istilah tersebut dilindungi
+> lewat `PROTECTED_TERMS` di `main.py`.
 
 ---
 
@@ -343,6 +358,7 @@ python main.py --train
 | `--model FILE` | Model `.pkl` untuk `--predict` | terbaru |
 | `--force` | Izinkan menimpa file berlabel | mati |
 | `--headless` | Browser tanpa tampilan (untuk server) | mati |
+| `--no-normalize` | Jangan normalisasi slang ke kata baku | mati |
 | `--no-lang-filter` | Jangan buang teks non-Indonesia | mati |
 
 ---
@@ -358,7 +374,8 @@ scraper-x/
 ├── lexicon/                 ← Lexicon sentimen
 │   ├── positive.tsv         (3.607 kata, dari InSet)
 │   ├── negative.tsv         (6.606 kata, dari InSet)
-│   └── custom.tsv           (istilah domain + koreksi polaritas)
+│   ├── custom.tsv           (istilah domain + koreksi polaritas)
+│   └── kamus_alay.tsv       (15.115 pemetaan slang -> baku)
 │
 ├── data/
 │   ├── raw/                 ← Hasil scraping mentah
@@ -820,6 +837,11 @@ dengan `--max` yang lebih besar.
 - Koto, F., & Rahmaningtyas, G.Y. (2017). *InSet Lexicon: Evaluation of a Word List
   for Indonesian Sentiment Analysis in Microblogs.* IALP.
   https://github.com/fajri91/InSet
+- Ibrohim, M.O., & Budi, I. (2019). *Multi-label Hate Speech and Abusive Language
+  Detection in Indonesian Twitter.* ALW3 @ ACL. — sumber Kamus Alay.
+  https://github.com/okkyibrohim/id-multi-label-hate-speech-and-abusive-language-detection
+- AI Lab, Telkom University. *Bahasa Indonesia NLP Resources.*
+  https://github.com/ailabtelkom/id-NLP-resources
 - Landis, J.R., & Koch, G.G. (1977). *The Measurement of Observer Agreement for
   Categorical Data.* Biometrics, 33(1), 159–174.
 - Dokumentasi scikit-learn: https://scikit-learn.org/stable/modules/naive_bayes.html
