@@ -298,7 +298,7 @@ source .venv/bin/activate          # Windows: myenv\Scripts\activate
 
 # Pastikan session/cookies.json sudah diisi (lihat Setup Session X)
 
-python main.py --scrape --max 250
+python main.py --scrape --max 130
 python main.py --preprocess
 python main.py --autolabel
 python main.py --sample-gold 200
