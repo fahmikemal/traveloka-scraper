@@ -1,6 +1,7 @@
 myenv/
 .venv-linux/
 data/
+models/
 results/
 session/
 backup_*/

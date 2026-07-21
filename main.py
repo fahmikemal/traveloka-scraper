@@ -481,7 +481,8 @@ def step_scrape(max_tweets, headless=False):
 
     kosong = [q for q, n in per_query.items() if n == 0]
     if kosong:
-        print(f"\nQuery tanpa hasil ({len(kosong)}):")
+        print(f"\nQuery tanpa tweet unik baru ({len(kosong)}) -- "
+              f"hasilnya sudah terambil query lain, bukan berarti kosong:")
         for q in kosong:
             print(f"  - {q}")
 
@@ -573,6 +574,23 @@ PROTECTED_TERMS = {
     "tvlk", "admin", "transfer", "saldo", "invoice", "etiket",
 }
 
+# Koreksi pemetaan Kamus Alay yang keliru pada KONTEKS PERJALANAN.
+# Kamus Alay disusun dari korpus Twitter umum, sehingga sebagian singkatan
+# kerangka konsonan dipetakan ke makna yang salah untuk domain ini:
+#
+#   "mrh" -> "marah" (-5)   padahal pada ulasan harga hampir selalu
+#                           "murah" (+3)  -> POLARITAS TERBALIK
+#   "rmh" -> "rumah" (+3)   padahal pada ulasan layanan umumnya
+#                           "ramah" (+5)  -> polaritas sama, makna meleset
+#
+# Hanya kasus yang jelas keliru untuk domain ini yang dikoreksi. Singkatan
+# ambigu lain SENGAJA dibiarkan mengikuti kamus aslinya: menggantinya dengan
+# tebakan sendiri lebih berisiko daripada memakai kamus yang sudah tervalidasi.
+SLANG_OVERRIDE = {
+    "mrh": "murah",
+    "rmh": "ramah",
+}
+
 
 def _load_slang():
     """Muat kamus normalisasi slang -> kata baku (Kamus Alay).
@@ -601,6 +619,7 @@ def _load_slang():
             # Lewati kunci 1 huruf: terlalu agresif, mudah salah ganti
             if len(k) > 1 and k != v and k not in PROTECTED_TERMS:
                 slang[k] = v
+    slang.update(SLANG_OVERRIDE)      # koreksi domain menang atas kamus umum
     return slang
 
 
@@ -1170,13 +1189,20 @@ def step_train(input_file, test_size=0.2, random_state=42):
     )
     print(f"\nData latih: {len(X_train)}  |  Data uji: {len(X_test)} (dibiarkan timpang)")
 
+    # Catat mayoritas SEBELUM oversampling (dipakai untuk baseline)
+    majority_before_oversample = y_train.value_counts().idxmax()
+
     X_train, y_train = _oversample(X_train, y_train, random_state)
     print(f"Data latih setelah oversampling: {len(X_train)}")
     for lbl, cnt in y_train.value_counts().sort_index().items():
         print(f"  {LABEL_MAP.get(lbl, lbl)}: {cnt}")
 
     # ── Baseline kelas mayoritas: acuan minimum yang harus dilampaui ──
-    majority = y_train.value_counts().idxmax()
+    # WAJIB memakai distribusi latih SEBELUM oversampling. Setelah
+    # oversampling semua kelas sama banyak, sehingga idxmax() mengembalikan
+    # kelas sembarang -- baseline jadi terlalu rendah dan model tampak lebih
+    # unggul daripada kenyataannya.
+    majority = majority_before_oversample
     base_pred = pd.Series([majority] * len(y_test), index=y_test.index)
     base_acc = accuracy_score(y_test, base_pred)
     base_f1m = f1_score(y_test, base_pred, average="macro", zero_division=0)
