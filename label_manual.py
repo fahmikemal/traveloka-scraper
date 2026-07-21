@@ -123,9 +123,10 @@ def main():
             continue
 
         pos += 1
-        if pos % 10 == 0:
-            df.to_csv(path, index=False, encoding="utf-8-sig")
-            print(f"  [progres disimpan]")
+        # Simpan SETIAP baris, bukan tiap 10. Menulis CSV 200 baris hampir
+        # tanpa biaya, dan ini menjamin nol kehilangan bila jendela terminal
+        # ditutup paksa atau proses mati mendadak.
+        df.to_csv(path, index=False, encoding="utf-8-sig")
 
     df.to_csv(path, index=False, encoding="utf-8-sig")
     selesai = sum(1 for i in df.index if not belum(i))
