@@ -19,7 +19,9 @@ pembanding.
 5. [Daftar Opsi](#daftar-opsi)
 6. [Struktur Folder](#struktur-folder)
 7. [Catatan Metodologi](#catatan-metodologi-penting-untuk-skripsi)
-8. [Troubleshooting](#troubleshooting)
+8. [Rincian Teknis & Rumus](#rincian-teknis--rumus-sesuai-kode)
+9. [Panduan Penyelarasan Naskah](#panduan-penyelarasan-naskah-dengan-kode)
+10. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -661,6 +663,100 @@ Interpretasi Landis & Koch (1977): < 0,20 sangat rendah · 0,20–0,40 rendah ·
 | `confusion_matrix` | Matriks 3×3 aktual vs prediksi |
 | `cohen_kappa_score` | **Validasi label** otomatis vs manual |
 | `clone` | Salin pipeline bersih tiap fold CV |
+
+---
+
+---
+
+## Panduan Penyelarasan Naskah dengan Kode
+
+Bagian ini untuk memastikan naskah skripsi menjelaskan **apa yang benar-benar
+dijalankan program**. Ketidakcocokan antara naskah dan kode adalah hal pertama
+yang dicari penguji, dan paling sulit dijelaskan saat sidang.
+
+Gunakan sebagai daftar periksa sebelum menyerahkan naskah.
+
+### A. Rumus yang wajib dicek ulang
+
+| Bagian naskah | Sering keliru ditulis | Yang benar-benar dihitung |
+|---|---|---|
+| IDF | `log(N/DF)` atau `log₂(D/df)` | `ln((1+n)/(1+df)) + 1` — varian *smoothed* sklearn |
+| TF | frekuensi mentah / total kata | `1 + ln(f)` karena `sublinear_tf=True` |
+| Bobot akhir | `TF × IDF` saja | `TF × IDF` **lalu dinormalisasi L2** |
+| Accuracy | `(TP+TN)/(...)` gaya 2 kelas | `Σ diagonal / Σ semua sel` (3 kelas) |
+| Metrik utama | accuracy | **macro-F1** + baseline kelas mayoritas |
+
+> Bila Bab II memakai rumus klasik untuk perhitungan manual, **tetap boleh** —
+> asalkan ditambahkan satu kalimat: *"perhitungan manual menggunakan rumus
+> klasik untuk ilustrasi, sedangkan implementasi menggunakan varian smoothed
+> pada scikit-learn."* Tanpa kalimat itu, angka manual dan angka program tidak
+> akan pernah cocok bila diverifikasi penguji.
+
+### B. Konsistensi angka
+
+Pastikan angka berikut sama di naskah dan kode:
+
+| Hal | Nilai di kode |
+|---|---|
+| Jumlah kata kunci pencarian | **33** |
+| Rasio data latih : uji | **80 : 20** |
+| Ambang netral skor lexicon | **\|skor\| ≤ 2** |
+| Jendela deteksi negasi | **3 token** |
+| Rentang bobot InSet | **−5 … +5** |
+| Cross-validation | **10-fold** stratified |
+| Grid pencarian alpha | `0.01 · 0.05 · 0.1 · 0.3 · 0.5 · 1.0 · 2.0` |
+| Confidence minimum deteksi bahasa | **0.70** |
+
+Semua nilai di atas dapat dikonfirmasi langsung dari `main.py`.
+
+### C. Yang perlu ditambahkan ke Bab Metodologi
+
+Tahapan berikut dijalankan program tetapi sering belum tertulis di naskah:
+
+1. **Penyaringan bahasa** — beserta alasan operator `lang:id` tidak dipakai
+2. **Penyaringan akun resmi** (`-from:traveloka`) — beserta alasannya
+3. **Oversampling hanya pada data latih** — dan mengapa urutannya tidak boleh dibalik
+4. **Baseline kelas mayoritas** sebagai acuan minimum
+5. **Macro-F1** sebagai metrik utama, bukan accuracy
+6. **Cohen's Kappa** untuk validasi pelabelan otomatis
+7. **`custom.tsv`** — dilaporkan sebagai *"InSet augmented with domain terms"*,
+   lengkap dengan daftar kata dan alasan penambahannya
+8. **Perbandingan MultinomialNB vs ComplementNB**
+
+### D. Lampiran yang sebaiknya disertakan
+
+- Tangkapan layar hasil crawling — **dari program ini**, bukan dari tool lain.
+  Kolom yang benar: `id, username, date, text, likes, retweets, replies, query`
+- Bagian *"Dilewati / gagal"* dari laporan scraping — sebagai keterbatasan
+  pengumpulan data
+- Distribusi bahasa sebelum dan sesudah penyaringan
+- Nilai Cohen's Kappa beserta interpretasinya
+- Tabel `results/metrics_*.csv` — memuat kedua model dan baseline sekaligus
+
+### E. Penandaan contoh vs hasil
+
+Tabel yang berisi **contoh perhitungan manual** wajib diberi keterangan tegas,
+misalnya *"Contoh Perhitungan Manual (bukan hasil penelitian)"*.
+
+Ini penting karena perhitungan manual dengan satu atau dua data uji akan
+menghasilkan accuracy, precision, recall, dan F1 bernilai **1,00 (100%)** —
+angka yang mustahil pada data sebenarnya. Tanpa keterangan, angka tersebut
+sangat mudah disalahpahami sebagai hasil penelitian.
+
+Hal yang sama berlaku untuk tabel berisi nama pengguna dan ulasan rekaan yang
+dipakai sebagai ilustrasi tahapan — beri label **"Data Ilustrasi"**.
+
+### F. Batasan yang jujur lebih kuat daripada angka tinggi
+
+Nilai yang wajar untuk dilaporkan apa adanya:
+
+- Cohen's Kappa rendah — menunjukkan keterbatasan pelabelan berbasis lexicon,
+  bukan kegagalan penelitian
+- Macro-F1 di kisaran 0,6 pada data timpang — realistis untuk 3 kelas
+- Jumlah dokumen yang gagal diambil saat scraping
+
+Angka tinggi tanpa penjelasan asal-usulnya jauh lebih berisiko di sidang
+daripada angka sedang yang dapat dipertanggungjawabkan.
 
 ---
 
