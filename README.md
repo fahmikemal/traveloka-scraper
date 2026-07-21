@@ -5,8 +5,14 @@ Proyek ini menganalisis sentimen komentar pengguna tentang **semua layanan Trave
 (pesawat, hotel, kereta, bus, rental, aktivitas, paylater, dll) yang diambil dari
 media sosial **X (Twitter)**.
 
-Metode utama: **Multinomial Naive Bayes (MNB)**, dengan **ComplementNB** sebagai
-pembanding.
+Metode: **Multinomial Naive Bayes (MNB)**. ComplementNB tersedia sebagai
+pembanding opsional lewat `--compare`.
+
+> **Ringkas hasil (588 dokumen, 22 Juli 2026):** macro-F1 **0,4253**
+> (95% CI 0,324–0,526) terhadap baseline 0,2548. Sentimen dominan **netral
+> 62,1%**. Pelabelan otomatis berbasis lexicon diuji dan **tidak valid**
+> (Cohen's Kappa **0,055**), sehingga model dilatih pada label hasil anotasi
+> manusia. Rincian di [Hasil Penelitian](#hasil-penelitian-data-22-juli-2026).
 
 ---
 
@@ -21,7 +27,10 @@ pembanding.
 7. [Catatan Metodologi](#catatan-metodologi-penting-untuk-skripsi)
 8. [Rincian Teknis & Rumus](#rincian-teknis--rumus-sesuai-kode)
 9. [Panduan Penyelarasan Naskah](#panduan-penyelarasan-naskah-dengan-kode)
-10. [Troubleshooting](#troubleshooting)
+10. [Sumber Data dan Kamus](#sumber-data-dan-kamus--rincian-lengkap)
+11. [Hasil Penelitian](#hasil-penelitian-data-22-juli-2026)
+12. [Pemetaan Naskah vs Implementasi](#pemetaan-naskah-skripsi-vs-implementasi)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -816,6 +825,220 @@ daripada angka sedang yang dapat dipertanggungjawabkan.
 | `matplotlib`, `seaborn` | Visualisasi confusion matrix |
 | `wordcloud` | Visualisasi kata (opsional) |
 | `tqdm` | Progress bar |
+
+---
+
+---
+
+## Sumber Data dan Kamus — Rincian Lengkap
+
+Semua sumber daya eksternal beserta metode, ukuran, dan sitasinya.
+
+### 1. Korpus — Media Sosial X
+
+| | |
+|---|---|
+| Sumber | x.com, tab *Latest* (`f=live`) |
+| Alat | Playwright 1.61.0 (Chromium), session cookie manual |
+| Kata kunci | 33 query netral (nama layanan + frasa pemakaian) |
+| Filter query | `-from:traveloka` |
+| Operator TIDAK dipakai | `lang:id` — mengembalikan indeks 2013–2014 |
+
+### 2. InSet — Lexicon Sentimen
+
+| | |
+|---|---|
+| **Metode** | **Kamus berbobot** — bukan model machine learning |
+| Ukuran | 3.607 positif (+1…+5) · 6.606 negatif (−5…−1) |
+| Efektif setelah digabung | 9.082 entri, 677 frasa multi-kata |
+| Cara kerja | Pencocokan token, frasa terpanjang didahulukan (maks 4 kata) |
+| Sitasi | Koto, F. & Rahmaningtyas, G.Y. (2017). *InSet Lexicon: Evaluation of a Word List for Indonesian Sentiment Analysis in Microblogs.* IALP |
+| Berkas | `lexicon/positive.tsv`, `lexicon/negative.tsv` |
+
+### 3. Kamus Alay — Normalisasi Slang
+
+> **Ini BUKAN model.** Tidak ada pembelajaran mesin, tidak ada jaringan saraf,
+> tidak ada pelatihan. Ini **kamus pencarian (dictionary lookup)** sederhana:
+> setiap token dicocokkan ke tabel, bila ada padanannya diganti, bila tidak
+> dibiarkan apa adanya.
+
+| | |
+|---|---|
+| **Metode** | **Substitusi token berbasis kamus** (*rule-based*) |
+| Ukuran asli | 15.167 pemetaan slang → baku |
+| Aktif dipakai | 15.115 (kunci 1 huruf dibuang, istilah domain dilindungi) |
+| Cara kerja | `token = kamus.get(token, token)` per kata |
+| Contoh | `bgt`→`banget` · `gk`→`tidak` · `yg`→`yang` · `bnyk`→`banyak` |
+| Sitasi | Ibrohim, M.O. & Budi, I. (2019). *Multi-label Hate Speech and Abusive Language Detection in Indonesian Twitter.* ALW3 @ ACL |
+| Dihimpun oleh | AI Lab, Telkom University — *Bahasa Indonesia NLP Resources* |
+| Berkas | `lexicon/kamus_alay.tsv` |
+
+**Penyesuaian yang dilakukan proyek ini** (wajib dilaporkan di skripsi):
+
+- `PROTECTED_TERMS` — 20 istilah domain dikecualikan, karena kamus umum
+  salah menerjemahkannya: `cs`→`rekan`, `apk`→`apakah`
+- `SLANG_OVERRIDE` — 2 koreksi konteks perjalanan:
+  `mrh`→`murah` (kamus asli: `marah`, **polaritas terbalik**),
+  `rmh`→`ramah` (kamus asli: `rumah`)
+- Kunci 1 huruf dibuang — terlalu agresif (`g`→`tidak` mengubah token acak)
+
+### 4. custom.tsv — Tambahan Domain
+
+| | |
+|---|---|
+| **Metode** | Kamus manual, disusun untuk penelitian ini |
+| Ukuran | 16 entri |
+| Alasan | InSet **tidak memuat** `kecewa`, `tipu`, `penipuan`, `refund`, `komplain`; dan salah polaritas pada `lambat`, `mahal` (bernilai +1) |
+| Hasil | Akurasi polaritas pada 20 kata uji: **14/20 → 20/20** |
+| Berkas | `lexicon/custom.tsv` |
+
+> Wajib dilaporkan sebagai *"InSet augmented with domain-specific terms"*,
+> lengkap dengan daftar kata dan alasan penambahannya.
+
+### 5. Sastrawi — Stemming
+
+| | |
+|---|---|
+| **Metode** | Algoritma **Nazief-Adriani** berbasis aturan imbuhan — bukan model |
+| Versi | PySastrawi 1.2.1 |
+| Stopword | Daftar bawaan Sastrawi **dikurangi 26 kata negasi** |
+
+### 6. langdetect — Deteksi Bahasa
+
+| | |
+|---|---|
+| **Metode** | Naive Bayes atas profil n-gram karakter (port dari Google language-detection) |
+| Versi | 1.0.9, 55 bahasa |
+| Ambang | confidence ≥ 0,70, hanya `id` dipertahankan |
+| Reproducibility | `DetectorFactory.seed = 0` — **wajib**, tanpa ini hasil berubah tiap dijalankan |
+
+---
+
+## Hasil Penelitian (Data 22 Juli 2026)
+
+### Perjalanan Data
+
+```
+1.928 tweet mentah (3 sesi scraping)
+ → 1.394  buang duplikat id             (−534)
+ → 1.062  Bahasa Indonesia, conf ≥0,70  (−332, 23,8%)
+ →   852  menyebut Traveloka            (−210, 19,8%)
+ →   691  bukan akun korporat           (−161, 18,9%)
+ →   599  maks 3 dokumen/penulis        (−92)
+ →   588  buang duplikat teks
+```
+
+**Dataset final: 588 dokumen · 498 penulis · 2017-07-19 s/d 2026-07-21**
+
+### Validasi Pelabelan — Temuan Utama
+
+```
+Cohen's Kappa   = 0,0551      (slight, Landis & Koch 1977)
+Kecocokan       = 31,29%      (184 dari 588)
+Dikoreksi       = 404 dokumen
+```
+
+Penyetelan ambang tidak menolong — 10 nilai diuji, terbaik κ = 0,105 pada ambang 10.
+
+| | Lexicon | **Manusia** |
+|---|---|---|
+| Negatif | 172 (29,3%) | **96 (16,3%)** |
+| Netral | 105 (17,9%) | **365 (62,1%)** |
+| Positif | 311 (52,9%) | **127 (21,6%)** |
+
+**Kesimpulannya berlawanan**: lexicon menyatakan positif dominan, manusia
+menyatakan netral dominan. Penyebab utama: iklan promo dan kalimat pertanyaan
+dihitung lexicon sebagai kepuasan pelanggan.
+
+**Konsekuensi metodologis:** label lexicon **tidak dipakai** sebagai sumber
+pelatihan. Model dilatih pada 588 label hasil anotasi manusia.
+
+### Hasil Model (dilatih pada label manusia)
+
+| Metrik | MultinomialNB | Baseline |
+|---|---|---|
+| Accuracy | 0,5763 | **0,6186** |
+| **Macro-F1** | **0,4253** | 0,2548 |
+| Weighted-F1 | 0,5538 | — |
+| Macro-Precision | 0,4547 | — |
+| Macro-Recall | 0,4167 | — |
+| CV-10 Macro-F1 | 0,5084 ± 0,0597 | — |
+| 95% CI Macro-F1 | [0,3236 – 0,5258] | — |
+
+Konfigurasi: α = 0,01 (GridSearch `f1_macro`) · latih 470 → 876 setelah
+oversampling · uji 118 (dibiarkan timpang).
+
+Per kelas: netral F1 0,73 · negatif 0,33 · positif 0,21.
+
+> **Accuracy model berada DI BAWAH baseline** (0,576 vs 0,619). Ini harus
+> dilaporkan apa adanya. Model unggul pada macro-F1 (0,425 vs 0,255) karena
+> mempelajari ketiga kelas, sedangkan baseline hanya menebak kelas mayoritas.
+> Pada data timpang, macro-F1 adalah metrik yang bermakna — tetapi kekalahan
+> pada accuracy tidak boleh disembunyikan.
+
+### Keterbatasan yang Wajib Diakui
+
+1. **Anotator tunggal.** Standar emas adalah ≥2 anotator independen.
+2. **Pergeseran standar antar-sesi.** Proporsi positif pada 201 sampel pertama
+   28,4%, pada 387 berikutnya 18,1% — indikasi standar mengetat.
+3. **Pra-anotasi otomatis dipakai.** Wajib disebut sebagai *"pelabelan manual
+   dengan bantuan pra-anotasi otomatis"*, bukan pelabelan manual murni.
+4. **Sampling tidak acak.** Tab *Latest* bersifat bias-kebaruan.
+5. **Rentang waktu 9 tahun** (2017–2026), bukan periode tunggal.
+6. **Kelas minoritas tipis** — 96 negatif dan 127 positif membatasi performa.
+7. **X memotong tweet panjang**; sebagian konteks hilang.
+8. **Scraping melanggar ToS X** — hanya untuk keperluan akademis.
+
+---
+
+## Pemetaan Naskah Skripsi vs Implementasi
+
+Diverifikasi terhadap naskah 39 halaman.
+
+### Sudah sesuai
+
+- **3.2 Sumber Data** — Playwright, session cookie, `main.py`, output CSV
+- **3.6 Pemodelan** — proporsi 80:20
+
+### Wajib diperbaiki
+
+| Bagian | Naskah | Kenyataan |
+|---|---|---|
+| 1.5.3 | "500 ulasan" | **588 dokumen** |
+| **Gambar 3.2** | Screenshot **tweet-harvest** (15 kolom, Des 2024) | Kode ini 8 kolom: `id, username, date, text, likes, retweets, replies, query` |
+| **3.3 Pelabelan** | "library yang tersedia di python" | **InSet** + custom.tsv, dan **terbukti tidak valid (κ=0,055)** |
+| **3.4 Preprocessing** | 5 tahap | **8 tahap** |
+| 2.8 IDF | `log(N/DF)` dan `log2(D/df)` | `ln((1+n)/(1+df))+1` |
+| 2.8 | "N = 3" | contohnya memakai 5 dokumen |
+| 2.4 | "140 karakter" | X kini 280+ |
+
+### Kesalahan hitung pada contoh manual (Bab III)
+
+| Butir | Naskah | Benar |
+|---|---|---|
+| Total kata unik (V) | 31 | **33** — `lumayan` & `alam` terlewat |
+| Total kata Positif (N) | 27 | **23** |
+| Frekuensi `banget` | Positif 2 | Positif **1** |
+| Frekuensi `lama` | Netral 1, Negatif 1 | Netral **1** saja |
+| Penyebut Laplace | (f+1)/58 | **(f+1)/56** |
+| P(Positif\|ulasan1) | 0,0000000277 | **0,0000000349** |
+
+Tabel 3.17 juga memilih 5 kata dari **18 kata yang nilainya identik** (0,0999)
+tanpa menyebutkan dasar pemilihannya.
+
+Tabel 3.6 memperlihatkan stemming membalik polaritas: `diperbaiki` → `baik`,
+sehingga keluhan berubah menjadi kata positif. Layak dibahas sebagai
+keterbatasan, bukan disembunyikan.
+
+### Belum ada di naskah
+
+1. Penyaringan bahasa, normalisasi slang, filter relevansi, filter akun
+   korporat, batas dokumen per penulis
+2. Validasi label dengan Cohen's Kappa — **temuan utama**
+3. Oversampling hanya pada data latih, baseline kelas mayoritas, macro-F1,
+   interval kepercayaan bootstrap
+4. Jawaban Rumusan Masalah 3: **sentimen dominan NETRAL (62,1%)**
+5. Delapan keterbatasan di atas
 
 ---
 
