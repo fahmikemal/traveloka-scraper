@@ -110,14 +110,14 @@ chmod 600 session/cookies.json     # Linux/macOS
 ### STEP 1 — Scraping
 
 ```bash
-python main.py --scrape --max 250
+python main.py --scrape --max 130
 ```
 
-- Mengambil tweet dari **17 keyword** layanan Traveloka
+- Mengambil tweet dari **33 kata kunci** layanan Traveloka
 - Hasil: `data/raw/traveloka_raw_TANGGAL.csv`
 - Kolom: `id, username, date, text, likes, retweets, replies, query`
 
-> **Perlu waktu lama.** Ada jeda 2,5 detik tiap scroll. 17 query x 250 tweet
+> **Perlu waktu lama.** Ada jeda 2,5 detik tiap scroll. 33 query x 130 tweet
 > bisa memakan 1–2 jam. Browser akan terbuka — jangan ditutup.
 
 **Berapa banyak yang dibutuhkan?** Sekitar **45-50% hasil scraping bukan
@@ -407,6 +407,263 @@ Indonesia) dan InSet (lexicon Indonesia) menghasilkan skor yang tidak bermakna.
 `langdetect` dipakai dengan `DetectorFactory.seed = 0` agar hasilnya dapat
 direproduksi.
 
+---
+
+## Rincian Teknis — Rumus Sesuai Kode
+
+> Semua rumus di bawah **sudah diverifikasi secara numerik** terhadap
+> scikit-learn 1.9.0 yang benar-benar dipakai, bukan disalin dari buku teks.
+
+### 1. Dataset
+
+| | Keterangan |
+|---|---|
+| Sumber | Media sosial X (Twitter), tab *Latest* |
+| Alat | Playwright (Chromium), session cookie |
+| Kata kunci | 33 query netral (nama layanan + frasa pemakaian) |
+| Kolom | `id, username, date, text, likes, retweets, replies, query` |
+| Filter query | `-from:traveloka` (buang balasan CS resmi) |
+| Filter bahasa | `langdetect`, hanya `id` dengan confidence ≥ 0.70 |
+| Target | ≥ 500 dokumen Bahasa Indonesia |
+
+### 2. Lexicon InSet
+
+InSet (Koto & Rahmaningtyas, 2017) — kamus sentimen Bahasa Indonesia:
+
+| File | Jumlah | Bobot |
+|---|---|---|
+| `positive.tsv` | 3.607 kata | +1 … +5 |
+| `negative.tsv` | 6.606 kata | −5 … −1 |
+| `custom.tsv` | 16 entri | koreksi domain |
+| **Efektif** | **9.082 entri** | 677 frasa multi-kata |
+
+**Skor sentimen dokumen:**
+
+```
+skor(d) = Σ  w(t) · neg(t)
+         t∈d
+```
+
+- `w(t)` = bobot kata/frasa `t` menurut lexicon
+- `neg(t)` = −1 bila ada kata negasi dalam **3 token** sebelum `t`, selain itu +1
+- Pencocokan berbasis **token**, frasa terpanjang didahulukan (maks 4 kata)
+
+**Aturan label:**
+
+```
+label = 2 (positif)  bila  skor >  2
+        0 (negatif)  bila  skor < -2
+        1 (netral)   bila  -2 ≤ skor ≤ 2
+```
+
+### 3. TF-IDF — ⚠️ Bukan Rumus Buku Teks
+
+scikit-learn **tidak** memakai `log(N/df)`. Yang benar-benar dihitung:
+
+**Term Frequency** (`sublinear_tf=True`):
+```
+tf(t,d) = 1 + ln( f(t,d) )        f = frekuensi mentah t dalam d
+```
+
+**Inverse Document Frequency** (`smooth_idf=True`, default):
+```
+idf(t) = ln( (1 + n) / (1 + df(t)) ) + 1
+```
+
+**Bobot & normalisasi** (`norm='l2'`):
+```
+w(t,d) = tf(t,d) × idf(t)                      lalu dinormalisasi:
+w_norm(t,d) = w(t,d) / √( Σ w(t',d)² )
+                        t'∈d
+```
+
+**Bukti numerik** (n=4 dokumen, `traveloka` df=3):
+
+| Rumus | Hasil |
+|---|---|
+| Buku teks `log₁₀(N/df)` | 0,124939 |
+| **sklearn `ln((1+n)/(1+df))+1`** | **1,223144** ✅ |
+| `idf_` aktual dari sklearn | 1,223144 |
+
+> 📌 **Penting untuk skripsi.** Bila Bab II Anda menuliskan `IDF = log(N/DF)`,
+> itu **tidak sesuai** dengan yang dihitung program. Pilih salah satu: perbaiki
+> rumus di Bab II agar sesuai sklearn, **atau** sebutkan eksplisit bahwa
+> perhitungan manual memakai rumus klasik sedangkan implementasi memakai
+> varian *smoothed* milik scikit-learn.
+
+**Parameter aktif:**
+
+| Parameter | Nilai | Arti |
+|---|---|---|
+| `ngram_range` | (1, 2) | unigram + bigram |
+| `min_df` | 1 | kata muncul ≥ 1 dokumen |
+| `max_df` | 0.95 | **buang** kata yang muncul di > 95% dokumen |
+| `sublinear_tf` | True | redam frekuensi dengan log |
+| `norm` | l2 | tiap dokumen dinormalisasi |
+
+> `max_df=0.95` berarti kata **"traveloka" sendiri kemungkinan besar dibuang**,
+> karena muncul di hampir semua dokumen sehingga tidak membedakan kelas.
+
+### 4. Multinomial Naive Bayes
+
+**Klasifikasi:**
+```
+ĉ = argmax [ log P(c) + Σ log P(t|c) ]
+      c∈C              t∈d
+```
+
+**Prior** (`fit_prior=True`):
+```
+P(c) = N_c / N          N_c = jumlah dokumen kelas c
+```
+
+**Likelihood dengan Lidstone smoothing:**
+```
+P(t|c) = ( N_tc + α ) / ( N_c + α·V )
+```
+- `N_tc` = total bobot kata `t` pada kelas `c`
+- `N_c` = total bobot semua kata pada kelas `c`
+- `V` = jumlah kata unik (ukuran vocabulary)
+- `α` = parameter smoothing; `α=1` disebut **Laplace smoothing**
+
+`α` dicari otomatis lewat GridSearch: `[0.01, 0.05, 0.1, 0.3, 0.5, 1.0, 2.0]`,
+5-fold, `scoring="f1_macro"`.
+
+### 5. ComplementNB (Pembanding)
+
+Rennie dkk. (2003). Alih-alih menghitung statistik **kelas c**, ia menghitung
+statistik **komplemen** — semua kelas *selain* c:
+
+```
+             ( N_t~c + α )
+θ_~c,t  =  ───────────────────
+            ( N_~c + α·V )
+
+w_ct = log θ_~c,t          lalu dinormalisasi:  w_ct / Σ|w_ct|
+
+ĉ = argmin Σ  f_t · w_ct        (argMIN, bukan argmax)
+      c    t∈d
+```
+
+Dirancang khusus untuk data timpang — estimasi parameternya lebih stabil karena
+kelas komplemen selalu punya lebih banyak sampel daripada kelas itu sendiri.
+
+### 6. Penanganan Ketidakseimbangan
+
+**Urutan wajib:** split → oversampling **hanya data latih**.
+
+```
+Random Oversampling: tiap kelas minoritas diduplikasi acak (dengan pengembalian)
+                     sampai jumlahnya = kelas terbanyak
+```
+
+Data uji **tidak disentuh** agar tetap mencerminkan distribusi nyata.
+
+### 7. Evaluasi
+
+**Confusion matrix 3×3** — `C[i][j]` = jumlah dokumen kelas asli `i` yang
+diprediksi sebagai `j`.
+
+```
+Accuracy = Σ C[i][i] / Σ C[i][j]              (diagonal / total)
+            i           i,j
+
+Precision_i = C[i][i] / Σ C[j][i]             (kolom)
+                          j
+
+Recall_i    = C[i][i] / Σ C[i][j]             (baris)
+                          j
+
+F1_i = 2 · (Precision_i × Recall_i) / (Precision_i + Recall_i)
+```
+
+**Macro-F1 — metrik utama:**
+```
+Macro-F1 = (1/k) · Σ F1_i          k = 3 kelas
+                    i
+```
+Rata-rata **tanpa bobot**, sehingga kelas kecil punya pengaruh sama besar
+dengan kelas besar. Inilah sebabnya macro-F1 dipakai, bukan weighted-F1 yang
+justru menyembunyikan kegagalan pada kelas minoritas.
+
+**Baseline kelas mayoritas** — acuan minimum yang wajib dilampaui:
+```
+Baseline_acc = N_mayoritas / N_total
+```
+
+**Cross-validation 10-fold**, stratified, dengan oversampling **di dalam tiap
+fold latih** (turun otomatis bila kelas terkecil < 10 sampel).
+
+### 8. Cohen's Kappa — Validasi Label
+
+Mengukur kesepakatan label otomatis vs label manual, **dikoreksi terhadap
+kesepakatan yang terjadi secara kebetulan**:
+
+```
+        p_o − p_e
+κ  =  ─────────────
+         1 − p_e
+```
+
+- `p_o` = proporsi label yang sama (kesepakatan teramati)
+- `p_e` = proporsi kesepakatan yang diharapkan **secara kebetulan**:
+  ```
+  p_e = Σ ( n_manual,i / N ) × ( n_auto,i / N )
+        i
+  ```
+
+**Contoh terverifikasi** (10 sampel): `p_o = 0,800` · `p_e = 0,340` →
+κ = (0,800 − 0,340) / (1 − 0,340) = **0,6970** — identik dengan
+`sklearn.metrics.cohen_kappa_score`.
+
+**Kenapa perlu?** Accuracy mentah menipu. Kalau 80% data berlabel netral,
+menebak "netral" terus sudah memberi 80% kecocokan tanpa pemahaman apa pun.
+Kappa mengoreksi hal ini: κ = 0 berarti **tidak lebih baik daripada menebak**.
+
+Interpretasi Landis & Koch (1977): < 0,20 sangat rendah · 0,20–0,40 rendah ·
+0,40–0,60 sedang · 0,60–0,80 baik · > 0,80 sangat baik.
+
+---
+
+## Library dan Fungsinya
+
+| Library | Versi | Dipakai untuk | Fungsi/kelas spesifik |
+|---|---|---|---|
+| `playwright` | 1.61.0 | Otomasi browser Chromium untuk scraping X | `sync_playwright`, `page.query_selector_all` |
+| `pandas` | 3.0.3 | Baca/tulis CSV, manipulasi tabel | `read_csv`, `DataFrame`, `drop_duplicates` |
+| `numpy` | 2.5.1 | Operasi numerik rata-rata & simpangan baku | `mean`, `std` |
+| `scikit-learn` | 1.9.0 | Ekstraksi fitur, model, evaluasi | lihat rincian di bawah |
+| `nltk` | 3.10.0 | Tokenisasi teks | `word_tokenize`, korpus `punkt` |
+| `PySastrawi` | 1.2.1 | Stemming & stopword Bahasa Indonesia | `StemmerFactory`, `StopWordRemoverFactory` |
+| `langdetect` | 1.0.9 | Deteksi bahasa dokumen | `detect_langs`, `DetectorFactory.seed` |
+| `matplotlib` | 3.11.1 | Render gambar confusion matrix | `pyplot.subplots`, `savefig` |
+| `seaborn` | 0.13.2 | Heatmap confusion matrix | `heatmap` |
+| `tqdm` | 4.69.0 | Progress bar | `tqdm`, `progress_apply` |
+| `openpyxl` | 3.1.5 | Dukungan file Excel (opsional) | — |
+| `wordcloud` | 1.9.6 | Visualisasi kata (opsional) | — |
+
+### Rincian scikit-learn
+
+| Modul | Fungsi dalam penelitian ini |
+|---|---|
+| `TfidfVectorizer` | Ubah teks → matriks bobot TF-IDF (unigram + bigram) |
+| `MultinomialNB` | **Model utama** sesuai judul penelitian |
+| `ComplementNB` | Model pembanding untuk data timpang |
+| `Pipeline` | Rangkai TF-IDF + classifier jadi satu objek |
+| `train_test_split` | Bagi data 80/20, `stratify` menjaga proporsi kelas |
+| `GridSearchCV` | Cari `alpha` terbaik, 5-fold, `scoring="f1_macro"` |
+| `StratifiedKFold` | Cross-validation 10-fold berimbang |
+| `resample` | Random oversampling **hanya pada data latih** |
+| `accuracy_score` | Proporsi prediksi benar |
+| `precision_score` / `recall_score` | Presisi & recall (`average="macro"`) |
+| `f1_score` | **Macro-F1**, metrik utama |
+| `classification_report` | Tabel metrik per kelas |
+| `confusion_matrix` | Matriks 3×3 aktual vs prediksi |
+| `cohen_kappa_score` | **Validasi label** otomatis vs manual |
+| `clone` | Salin pipeline bersih tiap fold CV |
+
+---
+
 ### Batas yang perlu diakui
 
 - Pelabelan InSet **bukan ground truth** — wajib divalidasi dengan Cohen's Kappa
@@ -421,10 +678,7 @@ direproduksi.
 
 ---
 
-## Library yang Digunakan
-
-| Library | Fungsi |
-|---|---|
+---|
 | `playwright` | Scraping browser otomatis |
 | `pandas`, `numpy` | Manipulasi data |
 | `scikit-learn` | MultinomialNB, ComplementNB, TF-IDF, evaluasi |
