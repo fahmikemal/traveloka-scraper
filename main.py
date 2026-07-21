@@ -657,15 +657,12 @@ def step_preprocess(input_file, filter_lang=True, lang_conf=0.70, normalize=True
     os.makedirs(PROCESSED_DIR, exist_ok=True)
     stemmer, stopwords = _init_nlp()
 
-    basename = os.path.splitext(os.path.basename(input_file))[0]
-    output = os.path.join(PROCESSED_DIR, f"{basename}_processed.csv")
-
     print("\n[STEP 3] PREPROCESSING TEKS")
     print("=" * 50)
-    print(f"Input : {input_file}")
 
     if isinstance(input_file, (list, tuple)):
         # Gabungkan beberapa sesi scraping, buang duplikat berdasarkan id tweet
+        print(f"Input : {len(input_file)} file digabung")
         parts = []
         for f in input_file:
             d = pd.read_csv(f, encoding="utf-8-sig")
@@ -676,9 +673,12 @@ def step_preprocess(input_file, filter_lang=True, lang_conf=0.70, normalize=True
         df = df.drop_duplicates(subset=["id"])
         print(f"  Gabungan: {sebelum} -> {len(df)} baris setelah buang duplikat id")
         basename = f"traveloka_gabungan_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        output = os.path.join(PROCESSED_DIR, f"{basename}_processed.csv")
     else:
+        print(f"Input : {input_file}")
         df = pd.read_csv(input_file, encoding="utf-8-sig")
+        basename = os.path.splitext(os.path.basename(input_file))[0]
+
+    output = os.path.join(PROCESSED_DIR, f"{basename}_processed.csv")
     print(f"Total : {len(df)} baris")
 
     tqdm.pandas(desc="  Cleaning")
