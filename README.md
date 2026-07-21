@@ -358,6 +358,7 @@ python main.py --train
 | `--model FILE` | Model `.pkl` untuk `--predict` | terbaru |
 | `--force` | Izinkan menimpa file berlabel | mati |
 | `--headless` | Browser tanpa tampilan (untuk server) | mati |
+| `--compare` | Latih juga ComplementNB sebagai pembanding | mati |
 | `--no-normalize` | Jangan normalisasi slang ke kata baku | mati |
 | `--no-lang-filter` | Jangan buang teks non-Indonesia | mati |
 

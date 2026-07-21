@@ -1193,7 +1193,7 @@ def _bootstrap_ci(y_true, y_pred, n_boot=2000, alpha=0.05, random_state=42):
     return lo, hi
 
 
-def step_train(input_file, test_size=0.2, random_state=42):
+def step_train(input_file, test_size=0.2, random_state=42, compare=False):
     import pandas as pd
     import matplotlib
     matplotlib.use("Agg")          # backend non-interaktif: aman tanpa display
@@ -1281,11 +1281,13 @@ def step_train(input_file, test_size=0.2, random_state=42):
             ("nb", estimator),
         ])
 
-    # MultinomialNB = metode utama sesuai judul; ComplementNB = pembanding.
-    candidates = [
-        ("MultinomialNB", MultinomialNB()),
-        ("ComplementNB",  ComplementNB()),
-    ]
+    # MultinomialNB adalah metode utama sesuai judul penelitian.
+    # ComplementNB hanya dilatih bila diminta lewat --compare. Judul dan
+    # rumusan masalah tidak menjanjikan studi perbandingan, sehingga secara
+    # bawaan cukup satu model agar laporan sejalan dengan naskah.
+    candidates = [("MultinomialNB", MultinomialNB())]
+    if compare:
+        candidates.append(("ComplementNB", ComplementNB()))
 
     rows, artifacts, prediksi = [], [], {}
     for name, estimator in candidates:
@@ -1474,6 +1476,8 @@ def main():
     parser.add_argument("--labeled",      type=str,   default=None, help="File CSV berlabel untuk --train")
     parser.add_argument("--gold",         type=str,   default=None, help="File gold berlabel manual untuk --kappa")
     parser.add_argument("--force",        action="store_true",      help="Izinkan menimpa file berlabel yang sudah ada")
+    parser.add_argument("--compare",      action="store_true",
+                        help="Latih juga ComplementNB sebagai pembanding (opsional)")
     parser.add_argument("--merge",        action="store_true",
                         help="Gabungkan SEMUA file di data/raw/ saat --preprocess")
     parser.add_argument("--headless",     action="store_true",
@@ -1551,7 +1555,8 @@ def main():
                 "ERROR: Tidak ada file berlabel di data/labeled/.\n"
                 "Buka file processed, tambahkan kolom 'label' (0/1/2), simpan di data/labeled/"
             )
-        model_path = step_train(src, test_size=args.test_size)
+        model_path = step_train(src, test_size=args.test_size,
+                                compare=args.compare)
 
     # ── PREDICT ──
     if args.predict:
