@@ -597,22 +597,27 @@ PROTECTED_TERMS = {
     "tvlk", "admin", "transfer", "saldo", "invoice", "etiket",
 }
 
-# Koreksi pemetaan Kamus Alay yang keliru pada KONTEKS PERJALANAN.
-# Kamus Alay disusun dari korpus Twitter umum, sehingga sebagian singkatan
-# kerangka konsonan dipetakan ke makna yang salah untuk domain ini:
+# CATATAN: SLANG_OVERRIDE sengaja TIDAK dipakai.
 #
-#   "mrh" -> "marah" (-5)   padahal pada ulasan harga hampir selalu
-#                           "murah" (+3)  -> POLARITAS TERBALIK
-#   "rmh" -> "rumah" (+3)   padahal pada ulasan layanan umumnya
-#                           "ramah" (+5)  -> polaritas sama, makna meleset
+# Sempat ditambahkan koreksi "mrh"->"murah" dan "rmh"->"ramah" dengan alasan
+# konteks perjalanan. Koreksi itu dibatalkan karena dua sebab:
 #
-# Hanya kasus yang jelas keliru untuk domain ini yang dikoreksi. Singkatan
-# ambigu lain SENGAJA dibiarkan mengikuti kamus aslinya: menggantinya dengan
-# tebakan sendiri lebih berisiko daripada memakai kamus yang sudah tervalidasi.
-SLANG_OVERRIDE = {
-    "mrh": "murah",
-    "rmh": "ramah",
-}
+# 1. Singkatan kerangka konsonan tidak dapat diselesaikan tanpa konteks.
+#    "mrh" bisa berarti "murah" ("tiketnya mrh banget") maupun "marah"
+#    ("aku mrh sama traveloka kalau refund tidak bisa"). Mengganti tebakan
+#    kamus dengan tebakan peneliti tidak membuatnya lebih benar, hanya
+#    memindahkan sumber kesalahannya.
+#
+# 2. Diperiksa pada korpus 1.394 tweet: "mrh" muncul 0 kali, "rmh" 0 kali.
+#    Koreksi tersebut tidak pernah berpengaruh apa pun terhadap hasil.
+#
+# Prinsip yang dipakai: bila kamus tidak dapat memutuskan dan konteks
+# diperlukan, jangan menebak. Biarkan mengikuti kamus aslinya yang sudah
+# dipublikasikan dan dapat disitasi.
+#
+# PROTECTED_TERMS tetap dipertahankan karena terbukti terpakai: "cs" muncul
+# pada 15 tweet dan "apk" pada 7 tweet, dan kamus umum salah menerjemahkan
+# keduanya.
 
 
 def _load_slang():
@@ -642,7 +647,7 @@ def _load_slang():
             # Lewati kunci 1 huruf: terlalu agresif, mudah salah ganti
             if len(k) > 1 and k != v and k not in PROTECTED_TERMS:
                 slang[k] = v
-    slang.update(SLANG_OVERRIDE)      # koreksi domain menang atas kamus umum
+
     return slang
 
 

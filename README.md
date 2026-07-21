@@ -876,11 +876,21 @@ Semua sumber daya eksternal beserta metode, ukuran, dan sitasinya.
 **Penyesuaian yang dilakukan proyek ini** (wajib dilaporkan di skripsi):
 
 - `PROTECTED_TERMS` — 20 istilah domain dikecualikan, karena kamus umum
-  salah menerjemahkannya: `cs`→`rekan`, `apk`→`apakah`
-- `SLANG_OVERRIDE` — 2 koreksi konteks perjalanan:
-  `mrh`→`murah` (kamus asli: `marah`, **polaritas terbalik**),
-  `rmh`→`ramah` (kamus asli: `rumah`)
+  salah menerjemahkannya: `cs`→`rekan`, `apk`→`apakah`. Terbukti terpakai:
+  `cs` muncul pada 15 tweet, `apk` pada 7 tweet
 - Kunci 1 huruf dibuang — terlalu agresif (`g`→`tidak` mengubah token acak)
+
+> **Koreksi kontekstual sengaja TIDAK dilakukan.** Sempat ditambahkan
+> `mrh`→`murah` dan `rmh`→`ramah` dengan alasan konteks perjalanan, lalu
+> dibatalkan. Singkatan kerangka konsonan tidak dapat diselesaikan tanpa
+> konteks: `mrh` bisa berarti "murah" (*"tiketnya mrh banget"*) maupun
+> "marah" (*"aku mrh sama traveloka kalau refund tidak bisa"*). Mengganti
+> tebakan kamus dengan tebakan peneliti hanya memindahkan sumber kesalahan.
+> Diperiksa pula pada korpus 1.394 tweet: kedua singkatan muncul **0 kali**,
+> sehingga koreksi itu tidak pernah berpengaruh.
+>
+> Prinsip: bila kamus tidak dapat memutuskan dan konteks diperlukan, jangan
+> menebak — ikuti kamus terpublikasi yang dapat disitasi.
 
 ### 4. custom.tsv — Tambahan Domain
 
