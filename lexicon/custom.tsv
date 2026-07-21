@@ -1,0 +1,27 @@
+word	weight
+# Lexicon tambahan untuk istilah yang tidak ada di InSet atau salah polaritas.
+# Format: kata<TAB>bobot  (-5 sampai +5). Baris diawali # diabaikan.
+# Entri di sini MENIMPA positive.tsv dan negative.tsv.
+#
+# WAJIB dilaporkan di skripsi sebagai "InSet augmented with domain terms",
+# beserta daftar kata dan alasan penambahannya.
+#
+# --- tidak ada di InSet: keluhan layanan ---
+kecewa	-4
+tipu	-5
+ditipu	-5
+menipu	-5
+penipuan	-5
+komplain	-3
+keluhan	-3
+refund	-2
+reschedule	-1
+dibatalkan	-3
+hangus	-4
+# --- tidak ada di InSet: pujian layanan ---
+rekomen	4
+worth	3
+# --- koreksi polaritas yang salah di InSet ---
+lambat	-3
+mahal	-3
+kemahalan	-3

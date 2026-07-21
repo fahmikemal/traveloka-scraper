@@ -1,8 +1,18 @@
-@"
 myenv/
+.venv-linux/
 data/
 results/
 session/
+backup_*/
 __pycache__/
 *.pyc
-"@ | Out-File -Encoding utf8 .gitignore
+
+# Lexicon InSet dilacak: dibutuhkan agar penelitian dapat direproduksi
+!lexicon/
+
+# Naskah skripsi & PDF referensi: JANGAN dipublikasikan.
+# - memuat nama lengkap + NIM
+# - PDF jurnal milik pihak lain (hak cipta)
+# - draf publik berisiko ditandai plagiarisme oleh Turnitin
+Skripsi-REZA/
+referensi/

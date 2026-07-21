@@ -1,29 +1,347 @@
 # Analisis Sentimen Komentar Traveloka di X
 ### Menggunakan Metode Multinomial Naive Bayes
 
-Proyek ini menganalisis sentimen komentar pengguna tentang **semua layanan Traveloka** (pesawat, hotel, kereta, bus, rental, aktivitas, paylater, dll) yang diambil dari media sosial **X (Twitter)**.
+Proyek ini menganalisis sentimen komentar pengguna tentang **semua layanan Traveloka**
+(pesawat, hotel, kereta, bus, rental, aktivitas, paylater, dll) yang diambil dari
+media sosial **X (Twitter)**.
+
+Metode utama: **Multinomial Naive Bayes (MNB)**, dengan **ComplementNB** sebagai
+pembanding.
 
 ---
 
-## Sebelum Mulai — Syarat yang Harus Disiapkan
+## Daftar Isi
 
-Sebelum menjalankan aplikasi ini, pastikan sudah punya:
-
-1. **Python** versi 3.10 ke atas — download di https://www.python.org/downloads/
-   - Saat install, centang **"Add Python to PATH"**
-2. **Akun X (Twitter)** — untuk login dan mengambil data
-3. **Koneksi internet**
+1. [Yang Perlu Disiapkan](#yang-perlu-disiapkan)
+2. [Instalasi](#instalasi-lakukan-sekali-saja)
+3. [Setup Session X](#setup-session-x-wajib)
+4. [Alur Lengkap](#alur-lengkap-step-by-step)
+5. [Daftar Opsi](#daftar-opsi)
+6. [Struktur Folder](#struktur-folder)
+7. [Catatan Metodologi](#catatan-metodologi-penting-untuk-skripsi)
+8. [Troubleshooting](#troubleshooting)
 
 ---
 
-## Langkah Pertama Kali (Dari Nol)
+## Yang Perlu Disiapkan
 
-Ikuti urutan ini **satu kali saja** saat pertama kali setup:
+1. **Python 3.11 ke atas** — https://www.python.org/downloads/
+   (saat install di Windows, centang **"Add Python to PATH"**)
+2. **Akun X (Twitter)** — untuk mengambil data
+3. **Browser Chrome/Edge** — untuk mengekspor cookie
+4. **Koneksi internet**
 
+---
+
+## Instalasi (Lakukan Sekali Saja)
+
+### 1. Buat virtual environment
+
+**Linux / macOS**
+```bash
+cd /path/ke/scraper-x
+python3 -m venv .venv
+source .venv/bin/activate
 ```
-Install Python  →  Download proyek  →  Buat virtual env
-→  Install library  →  Install browser  →  Siap pakai
+
+**Windows**
+```powershell
+cd D:\scraper-x
+python -m venv myenv
+myenv\Scripts\activate
 ```
+
+Kalau berhasil, akan muncul `(.venv)` atau `(myenv)` di depan prompt terminal.
+
+> **Penting:** setiap kali membuka terminal baru, aktifkan dulu virtual
+> environment sebelum menjalankan apapun.
+
+### 2. Install library
+
+```bash
+pip install -r requirements.txt
+```
+
+Semua versi sudah dikunci di `requirements.txt` agar hasil penelitian dapat
+direproduksi.
+
+### 3. Install browser untuk Playwright
+
+```bash
+playwright install chromium
+```
+
+### 4. Pastikan lexicon InSet tersedia
+
+Folder `lexicon/` harus berisi `positive.tsv` dan `negative.tsv`. Kalau belum ada:
+
+```bash
+mkdir -p lexicon && cd lexicon
+curl -LO https://raw.githubusercontent.com/fajri91/InSet/master/positive.tsv
+curl -LO https://raw.githubusercontent.com/fajri91/InSet/master/negative.tsv
+cd ..
+```
+
+---
+
+## Setup Session X (Wajib)
+
+X tidak mengizinkan login otomatis, jadi session diambil dari cookie browser.
+
+1. Pasang ekstensi **Cookie-Editor** di Chrome/Edge (cari di Chrome Web Store)
+2. Buka https://x.com dan **login seperti biasa**
+3. Setelah masuk beranda, klik ikon **Cookie-Editor** di pojok kanan atas
+4. Klik tombol **Export** (ikon panah ke bawah) — cookie tersalin ke clipboard
+5. Buat file `session/cookies.json`, paste isinya, lalu simpan
+
+**Amankan file tersebut** (berisi `auth_token` yang setara akses penuh ke akun Anda):
+
+```bash
+chmod 600 session/cookies.json     # Linux/macOS
+```
+
+> Jika session expired (biasanya setelah beberapa hari atau setelah logout),
+> ulangi langkah 2–5.
+
+---
+
+## Alur Lengkap Step by Step
+
+### STEP 1 — Scraping
+
+```bash
+python main.py --scrape --max 250
+```
+
+- Mengambil tweet dari **17 keyword** layanan Traveloka
+- Hasil: `data/raw/traveloka_raw_TANGGAL.csv`
+- Kolom: `id, username, date, text, likes, retweets, replies, query`
+
+> **Perlu waktu lama.** Ada jeda 2,5 detik tiap scroll. 17 query x 250 tweet
+> bisa memakan 1–2 jam. Browser akan terbuka — jangan ditutup.
+
+**Berapa banyak yang dibutuhkan?** Sekitar **45-50% hasil scraping bukan
+Bahasa Indonesia** dan akan dibuang di STEP 2. Untuk mendapat ~1.000 data
+Indonesia, scrape minimal 2.000 tweet mentah (`--max 130` ke atas).
+
+> **Catatan penting soal query.** Operator `lang:id` **tidak dipakai**. Diuji
+> 21 Juli 2026, operator itu membuat X mengembalikan indeks lama — tweet
+> 2013–2014, 19 dari 20 berasal dari akun resmi `@traveloka`. Tanpa operator
+> tersebut, hasil pencarian adalah tweet hari itu juga. Penyaringan bahasa
+> dilakukan di STEP 2 memakai `langdetect`.
+>
+> Query juga memakai `-from:traveloka` untuk membuang balasan customer service
+> akun resmi, yang isinya teks PR dan akan mencemari analisis sentimen
+> pelanggan. Balasan dari pengguna biasa tetap diambil.
+
+---
+
+### STEP 2 — Preprocessing
+
+```bash
+python main.py --preprocess
+```
+
+Otomatis mengambil file raw terbaru. Untuk menentukan file secara manual:
+
+```bash
+python main.py --preprocess --input data/raw/traveloka_raw_TANGGAL.csv
+```
+
+Proses yang dijalankan:
+
+1. Hapus URL, mention (`@user`), hashtag (`#`)
+2. Hapus karakter non-ASCII, angka, dan tanda baca
+3. Lowercase
+4. **Filter bahasa** — buang dokumen non-Indonesia (langdetect, confidence >= 0.70)
+5. Tokenisasi
+6. Hapus stopword — **kata negasi sengaja DIPERTAHANKAN**
+7. Stemming dengan PySastrawi
+
+Hasil: `data/processed/`
+
+> **Perhatikan output-nya.** Akan tercetak distribusi bahasa dan berapa baris
+> yang dibuang. Kalau data Indonesia tersisa < 300, akan muncul peringatan —
+> scrape lagi sebelum melanjutkan.
+
+Untuk melewati filter bahasa (**tidak disarankan**): tambahkan `--no-lang-filter`
+
+---
+
+### STEP 3 — Auto Labeling (InSet)
+
+```bash
+python main.py --autolabel
+```
+
+Menggunakan lexicon **InSet** (positive.tsv 3.607 + negative.tsv 6.606, bobot
+-5 sampai +5) ditambah `lexicon/custom.tsv` untuk istilah domain:
+
+- Pencocokan berbasis **token**, bukan substring
+- Mendukung **frasa multi-kata** (677 entri), pencocokan terpanjang didahulukan
+- **Penanganan negasi**: kata sentimen yang didahului kata negasi dalam jarak
+  3 token akan dibalik polaritasnya
+- Label: `0` = negatif, `1` = netral, `2` = positif
+- Ambang netral: `|skor| <= 2` (ubah dengan `--threshold`)
+
+> **Penting — InSet mengandung kontradiksi internal.** 1.142 kata muncul di
+> `positive.tsv` **dan** `negative.tsv` dengan bobot berlawanan (mis. `bagus`
+> = +2 dan −4). Proyek ini mendahulukan `positive.tsv`, dipilih setelah menguji
+> tiga strategi terhadap 20 kata umum: positive didahulukan **16/20**,
+> |bobot| maksimum 15/20, dijumlahkan 14/20.
+>
+> Selain itu beberapa istilah penting **tidak ada di InSet sama sekali**
+> (`kecewa`, `tipu`, `penipuan`, `refund`, `komplain`), dan beberapa salah
+> polaritas (`lambat` dan `mahal` bernilai +1). Keduanya dikoreksi lewat
+> `lexicon/custom.tsv`, yang menaikkan akurasi polaritas pada 20 kata uji
+> tersebut dari 14/20 menjadi **20/20**.
+>
+> `custom.tsv` **wajib dilaporkan di skripsi** sebagai *"InSet augmented with
+> domain terms"*, lengkap dengan daftar kata dan alasan penambahannya.
+
+Hasil: `data/labeled/`, dengan kolom tambahan `sentiment_score` dan `lexicon_hits`.
+
+> Output juga melaporkan berapa label "netral" yang sebenarnya **tidak terdeteksi
+> lexicon** — angka ini penting untuk dibahas di skripsi.
+
+**Perlindungan data:** perintah ini **menolak menimpa** file berlabel yang sudah
+ada, agar koreksi manual Anda tidak hilang. Gunakan `--force` bila memang ingin
+menimpa (backup dulu).
+
+---
+
+### STEP 4 — Validasi Label (JANGAN DILEWATI)
+
+Pelabelan otomatis **bukan ground truth**. Validitasnya wajib diukur.
+
+**4a. Ambil sampel untuk dilabeli manual**
+
+```bash
+python main.py --sample-gold 200      # angka opsional, default 200
+```
+
+Hasil: `data/gold/gold_sample_TANGGAL.csv` (stratified per kelas)
+
+**4b. Isi label manual**
+
+Buka file tersebut di Excel/LibreOffice, isi kolom **`label_manual`**:
+`0` = negatif, `1` = netral, `2` = positif
+
+> Baca kolom `text` (teks asli). **Jangan lihat kolom `label_auto`** dulu agar
+> penilaian Anda tidak terpengaruh. Simpan kembali sebagai CSV.
+
+**4c. Ukur kesepakatan**
+
+```bash
+python main.py --kappa
+```
+
+Menghasilkan **Cohen's Kappa** beserta interpretasi Landis & Koch (1977):
+
+| Kappa | Interpretasi |
+|---|---|
+| < 0.00 | lebih buruk dari tebakan acak |
+| 0.00 – 0.20 | sangat rendah (slight) |
+| 0.20 – 0.40 | rendah (fair) |
+| 0.40 – 0.60 | sedang (moderate) |
+| 0.60 – 0.80 | baik (substantial) |
+| 0.80 – 1.00 | sangat baik (almost perfect) |
+
+> **Jika Kappa < 0.40**, label otomatis tidak cukup valid. Gunakan label manual
+> untuk training, atau perbaiki ambang/lexicon terlebih dahulu.
+
+---
+
+### STEP 5 — Training
+
+```bash
+python main.py --train
+```
+
+Proses yang dijalankan:
+
+1. **Split dulu** (stratified), data uji dibiarkan timpang sesuai kondisi nyata
+2. **Oversampling hanya pada data latih** — mencegah data leakage
+3. **Baseline kelas mayoritas** dihitung sebagai acuan minimum
+4. **TF-IDF** (unigram + bigram, `sublinear_tf`, `max_df=0.95`)
+5. **GridSearch** alpha dengan `scoring="f1_macro"`
+6. Melatih **MultinomialNB** (utama) dan **ComplementNB** (pembanding)
+7. **Cross-validation 10-fold** dengan oversampling **di dalam tiap fold**
+8. Evaluasi: accuracy, macro-F1, weighted-F1, macro-precision, macro-recall
+
+Hasil:
+- `models/mnb_model_TANGGAL.pkl` dan `models/cnb_model_TANGGAL.pkl`
+- `results/confusion_matrix_multinomialnb_TANGGAL.png` (dan `complementnb`)
+- `results/metrics_TANGGAL.csv` — satu baris per model, lengkap dengan baseline
+
+---
+
+### Prediksi Data Baru
+
+```bash
+python main.py --predict --input data/processed/file_baru.csv
+```
+
+Dengan model tertentu:
+
+```bash
+python main.py --predict --model models/mnb_model_xxx.pkl --input data/processed/file_baru.csv
+```
+
+---
+
+## Ringkasan Perintah (Copy-Paste)
+
+```bash
+# Aktifkan virtual environment dulu
+source .venv/bin/activate          # Windows: myenv\Scripts\activate
+
+# Pastikan session/cookies.json sudah diisi (lihat Setup Session X)
+
+python main.py --scrape --max 250
+python main.py --preprocess
+python main.py --autolabel
+python main.py --sample-gold 200
+#   -> isi kolom 'label_manual' di Excel, simpan sebagai CSV
+python main.py --kappa
+python main.py --train
+```
+
+> **Jangan gunakan `--all`** untuk penelitian. Opsi itu melompati validasi
+> Cohen's Kappa, padahal validasi tersebut yang membuat hasil penelitian dapat
+> dipertanggungjawabkan.
+
+---
+
+## Daftar Opsi
+
+### Tahapan
+
+| Opsi | Fungsi |
+|---|---|
+| `--scrape` | Scrape komentar Traveloka dari X |
+| `--preprocess` | Preprocessing teks + filter bahasa |
+| `--autolabel` | Pelabelan otomatis dengan lexicon InSet |
+| `--sample-gold` | Ambil sampel untuk dilabeli manual |
+| `--kappa` | Ukur Cohen's Kappa (otomatis vs manual) |
+| `--train` | Latih MultinomialNB + ComplementNB |
+| `--all` | Scrape + Preprocess + AutoLabel + Train |
+| `--predict` | Prediksi sentimen file baru |
+
+### Parameter
+
+| Parameter | Fungsi | Default |
+|---|---|---|
+| `--max N` | Tweet per query | 100 |
+| `--test-size R` | Rasio data uji | 0.2 |
+| `--threshold N` | Ambang netral skor InSet | 2 |
+| `--input FILE` | File input CSV manual | otomatis |
+| `--labeled FILE` | File berlabel untuk `--train` | otomatis |
+| `--gold FILE` | File gold untuk `--kappa` | otomatis |
+| `--model FILE` | Model `.pkl` untuk `--predict` | terbaru |
+| `--force` | Izinkan menimpa file berlabel | mati |
+| `--headless` | Browser tanpa tampilan (untuk server) | mati |
+| `--no-lang-filter` | Jangan buang teks non-Indonesia | mati |
 
 ---
 
@@ -31,270 +349,75 @@ Install Python  →  Download proyek  →  Buat virtual env
 
 ```
 scraper-x/
-├── main.py                  ← File utama (semua proses ada di sini)
-├── requirements.txt         ← Daftar library yang dibutuhkan
+├── main.py                  ← Semua proses ada di sini
+├── requirements.txt         ← Library (versi terkunci)
+├── README.md
+│
+├── lexicon/                 ← Lexicon sentimen
+│   ├── positive.tsv         (3.607 kata, dari InSet)
+│   ├── negative.tsv         (6.606 kata, dari InSet)
+│   └── custom.tsv           (istilah domain + koreksi polaritas)
 │
 ├── data/
-│   ├── raw/                 ← Hasil scraping mentah (.csv)
-│   ├── processed/           ← Hasil preprocessing (.csv)
-│   └── labeled/             ← Data berlabel untuk training (.csv)
+│   ├── raw/                 ← Hasil scraping mentah
+│   ├── processed/           ← Hasil preprocessing
+│   ├── labeled/             ← Data berlabel otomatis
+│   └── gold/                ← Sampel untuk label manual
 │
 ├── models/                  ← Model terlatih (.pkl)
-├── results/                 ← Confusion matrix & metrik (.png, .csv)
+├── results/                 ← Confusion matrix & metrik
+├── referensi/               ← Paper pendukung
 └── session/
-    └── cookies.json         ← Session login X (dibuat otomatis)
+    └── cookies.json         ← Session X (dibuat manual)
 ```
 
 ---
 
-## Cara Install (Lakukan Sekali Saja)
-
-### 1. Cek Python sudah terinstall
-Buka **Command Prompt** atau **PowerShell**, ketik:
-```bash
-python --version
-```
-Harus muncul versi Python, contoh: `Python 3.11.0`
-
-> Belum punya Python? Download di https://www.python.org/downloads/ — pilih versi terbaru, saat install **centang "Add Python to PATH"**
-
----
-
-### 2. Buka folder proyek di terminal
-Klik kanan folder `scraper-x` → **Open in Terminal** (atau PowerShell)
-
-Atau ketik manual:
-```bash
-cd "D:\scraper-x"
-```
-> Sesuaikan path dengan lokasi folder proyek di komputer Anda
-
----
-
-### 3. Buat virtual environment
-```bash
-python -m venv myenv
-```
-Ini membuat folder `myenv` yang berisi Python khusus untuk proyek ini.
-
----
-
-### 4. Aktifkan virtual environment
-```bash
-myenv\Scripts\activate
-```
-Kalau berhasil, di depan terminal akan muncul tulisan `(myenv)`:
-```
-(myenv) PS D:\scraper-x>
-```
-
-> **Penting:** Setiap kali buka terminal baru, selalu aktifkan dulu dengan perintah di atas sebelum menjalankan apapun.
-
----
-
-### 5. Install semua library
-```bash
-pip install -r requirements.txt
-```
-Tunggu sampai selesai (bisa beberapa menit tergantung koneksi internet).
-
----
-
-### 6. Install browser Chromium untuk Playwright
-```bash
-playwright install chromium
-```
-Ini mengunduh browser khusus yang dipakai untuk mengambil data dari X.
-
----
-
-## Cara Pakai
-
-Semua proses dijalankan lewat satu file: `main.py`
-
-### Opsi yang tersedia
-
-| Opsi | Fungsi |
-|---|---|
-| `--login` | Login ke X dan simpan session |
-| `--scrape` | Scrape komentar Traveloka dari X |
-| `--preprocess` | Preprocessing teks (cleaning + stemming) |
-| `--autolabel` | Labeling otomatis berbasis keyword |
-| `--train` | Latih model Multinomial Naive Bayes |
-| `--all` | Jalankan semua tahap sekaligus |
-| `--predict` | Prediksi sentimen file baru |
-
-### Parameter tambahan
-
-| Parameter | Fungsi | Default |
-|---|---|---|
-| `--max 150` | Jumlah tweet per query | 100 |
-| `--test-size 0.2` | Rasio data uji | 0.2 (20%) |
-| `--input file.csv` | Tentukan file input manual | - |
-| `--labeled file.csv` | File berlabel untuk training | - |
-| `--model file.pkl` | Model untuk prediksi | - |
-
----
-
-## Alur Lengkap Step by Step
-
-> Setiap kali membuka terminal baru, **aktifkan virtual environment dulu**:
-> ```bash
-> myenv\Scripts\activate
-> ```
-
----
-
-### STEP 1 — Simpan Session Login X (lakukan sekali saja)
-
-X tidak mengizinkan login otomatis, jadi session diambil secara manual dari browser biasa menggunakan ekstensi. Ikuti langkah berikut:
-
-**1. Install ekstensi Cookie-Editor di Chrome/Edge**
-- Buka Chrome Web Store
-- Cari **"Cookie-Editor"** (ikon biru-putih)
-- Klik **Add to Chrome** → **Add Extension**
-
-**2. Login ke X di browser**
-- Buka https://x.com
-- Login dengan akun X Anda seperti biasa
-
-**3. Export cookies**
-- Setelah berhasil masuk ke beranda X, klik ikon ekstensi **Cookie-Editor** di pojok kanan atas browser
-- Klik tombol **Export** (ikon panah ke bawah) di pojok kanan bawah
-- Cookies otomatis tersalin ke clipboard
-
-**4. Simpan ke file**
-- Buka folder proyek `scraper-x/session/`
-- Buat file baru bernama `cookies.json`
-- Paste hasil export tadi ke dalam file tersebut
-- Simpan file
-
-> **Catatan:** Jika session expired (biasanya setelah beberapa hari atau logout), ulangi langkah di atas dari nomor 2.
-
----
-
-### STEP 2 — Scraping Komentar
-
-```bash
-python main.py --scrape --max 100
-```
-
-- Mengambil komentar dari 17 keyword layanan Traveloka
-- Hasil disimpan di `data/raw/traveloka_raw_TANGGAL.csv`
-- Kolom hasil: `id, username, date, text, likes, retweets, replies, query`
-
-Contoh dengan lebih banyak data:
-```bash
-python main.py --scrape --max 300
-```
-
----
-
-### STEP 3 — Preprocessing Teks
-
-```bash
-python main.py --preprocess --input data/raw/traveloka_raw_TANGGAL.csv
-```
-
-Proses yang dilakukan:
-1. Hapus URL, mention (@user), hashtag (#)
-2. Hapus emoji dan karakter non-ASCII
-3. Hapus angka dan tanda baca
-4. Lowercase semua teks
-5. Tokenisasi
-6. Hapus stopword (Bahasa Indonesia + Inggris)
-7. Stemming menggunakan PySastrawi
-
-Hasil disimpan di `data/processed/`
-
----
-
-### STEP 4 — Auto Labeling
-
-```bash
-python main.py --autolabel --input data/processed/traveloka_raw_TANGGAL_processed.csv
-```
-
-- Memberi label otomatis berdasarkan keyword positif/negatif
-- Label `0` (negatif), `1` (netral), `2` (positif)
-- Hasil disimpan di `data/labeled/`
-
-> **Disarankan:** Buka file hasil di Excel, cek beberapa baris dan koreksi label yang kurang tepat sebelum lanjut ke training.
-
----
-
-### STEP 5 — Training Model
-
-```bash
-python main.py --train --labeled data/labeled/traveloka_raw_TANGGAL_labeled.csv
-```
-
-Proses yang dilakukan:
-1. **Oversampling** — menyeimbangkan jumlah data tiap kelas
-2. **TF-IDF Vectorizer** — mengubah teks menjadi angka (fitur)
-3. **GridSearch** — mencari nilai alpha terbaik otomatis
-4. **ComplementNB** — melatih model Naive Bayes
-5. **Evaluasi** — accuracy, precision, recall, F1-score, cross-validation
-
-Hasil tersimpan di:
-- `models/mnb_model_TANGGAL.pkl` — model terlatih
-- `results/confusion_matrix_TANGGAL.png` — grafik confusion matrix
-- `results/metrics_TANGGAL.csv` — ringkasan metrik
-
----
-
-### Semua Sekaligus (STEP 2–5)
-
-Setelah login, bisa jalankan semua tahap dengan satu perintah:
-
-```bash
-python main.py --all --max 150
-```
-
----
-
-### Prediksi Data Baru
-
-Jika ingin memprediksi file baru menggunakan model yang sudah ada:
-
-```bash
-python main.py --predict --input data/processed/file_baru.csv
-```
-
-Atau dengan model tertentu:
-```bash
-python main.py --predict --model models/mnb_model_xxx.pkl --input data/processed/file_baru.csv
-```
-
----
-
-## Ringkasan Urutan Perintah (Copy-Paste Siap Pakai)
-
-Jalankan satu per satu dari atas ke bawah:
-
-```bash
-# Aktifkan virtual environment (wajib setiap buka terminal baru)
-myenv\Scripts\activate
-
-# STEP 2 — Ambil data komentar Traveloka dari X
-# (Pastikan cookies.json sudah ada di folder session/ — lihat STEP 1)
-python main.py --scrape --max 150
-
-# STEP 3 — Preprocessing teks
-# Ganti nama file sesuai hasil scraping di folder data/raw/
-python main.py --preprocess --input data/raw/traveloka_raw_TANGGAL.csv
-
-# STEP 4 — Auto labeling
-# Ganti nama file sesuai hasil preprocessing di folder data/processed/
-python main.py --autolabel --input data/processed/traveloka_raw_TANGGAL_processed.csv
-
-# STEP 5 — Training model
-# Ganti nama file sesuai hasil labeling di folder data/labeled/
-python main.py --train --labeled data/labeled/traveloka_raw_TANGGAL_labeled.csv
-```
-
-> **Tips:** Nama file hasil scraping, preprocessing, dan labeling menggunakan tanggal & jam otomatis.
-> Cek folder `data/raw/`, `data/processed/`, dan `data/labeled/` untuk melihat nama file yang benar.
+## Catatan Metodologi (Penting untuk Skripsi)
+
+### Mengapa split dilakukan sebelum oversampling
+
+Oversampling sebelum pembagian data menyebabkan **data leakage**: baris hasil
+duplikasi kelas minoritas bocor ke data uji, sehingga akurasi yang dilaporkan
+adalah hafalan, bukan generalisasi. Pada dataset awal proyek ini, 49,2% baris
+data uji ternyata identik dengan baris di data latih.
+
+Karena itu urutannya: **split → oversampling hanya pada data latih**. Data uji
+dibiarkan timpang agar mencerminkan distribusi nyata.
+
+### Mengapa macro-F1, bukan accuracy
+
+Pada data timpang, accuracy menyesatkan. Model yang selalu menebak kelas
+mayoritas bisa mendapat accuracy tinggi tanpa mempelajari apapun. Karena itu
+setiap run mencetak **baseline kelas mayoritas** — model hanya berguna bila
+melampauinya, dan **macro-F1** dipakai sebagai metrik utama.
+
+### Mengapa kata negasi tidak dihapus
+
+Menghapus "tidak", "bukan", "gak" membuat `"tidak bagus"` menyusut menjadi
+`"bagus"`, sehingga model tidak mungkin mempelajari pembalikan polaritas.
+Daftar stopword bawaan Sastrawi memuat kata-kata ini, jadi dikurangkan secara
+eksplisit di `NEGATION_WORDS`.
+
+### Mengapa dokumen non-Indonesia dibuang
+
+Filter `lang:id` milik X tidak dapat diandalkan — banyak tweet promosi berbahasa
+Inggris tetap lolos. Menganalisis teks Inggris memakai Sastrawi (stemmer
+Indonesia) dan InSet (lexicon Indonesia) menghasilkan skor yang tidak bermakna.
+`langdetect` dipakai dengan `DetectorFactory.seed = 0` agar hasilnya dapat
+direproduksi.
+
+### Batas yang perlu diakui
+
+- Pelabelan InSet **bukan ground truth** — wajib divalidasi dengan Cohen's Kappa
+- InSet mengandung 1.142 kata dengan polaritas bertentangan di kedua filenya,
+  dan tidak memuat sebagian istilah penting domain ini — sebagian dikoreksi
+  lewat `custom.tsv`, tetapi sisa kesalahan pasti masih ada
+- `langdetect` kurang akurat pada teks pendek; sebagian tweet Indonesia gaul
+  mungkin ikut terbuang
+- Dataset < 1.000 dokumen menghasilkan interval kepercayaan yang sangat lebar
+- Scraping X melanggar Terms of Service X; gunakan hanya untuk keperluan
+  akademis, dan pertimbangkan anonimisasi kolom `username` pada lampiran skripsi
 
 ---
 
@@ -303,12 +426,12 @@ python main.py --train --labeled data/labeled/traveloka_raw_TANGGAL_labeled.csv
 | Library | Fungsi |
 |---|---|
 | `playwright` | Scraping browser otomatis |
-| `pandas` | Manipulasi data |
-| `numpy` | Operasi numerik |
-| `scikit-learn` | Model machine learning (MNB, TF-IDF) |
-| `nltk` | Tokenisasi teks |
+| `pandas`, `numpy` | Manipulasi data |
+| `scikit-learn` | MultinomialNB, ComplementNB, TF-IDF, evaluasi |
+| `nltk` | Tokenisasi |
 | `PySastrawi` | Stemming Bahasa Indonesia |
-| `matplotlib` & `seaborn` | Visualisasi confusion matrix |
+| `langdetect` | Deteksi bahasa |
+| `matplotlib`, `seaborn` | Visualisasi confusion matrix |
 | `wordcloud` | Visualisasi kata (opsional) |
 | `tqdm` | Progress bar |
 
@@ -316,17 +439,37 @@ python main.py --train --labeled data/labeled/traveloka_raw_TANGGAL_labeled.csv
 
 ## Troubleshooting
 
-**Session expired saat scraping:**
-```bash
-python main.py --login
-```
+**`ERROR: Session tidak ditemukan`**
+File `session/cookies.json` belum ada. Lihat [Setup Session X](#setup-session-x-wajib).
 
-**Error saat install scikit-learn (Python 3.14):**
-```bash
-pip install scikit-learn --no-build-isolation
-```
+**`Session expired atau tidak valid!`**
+Cookie sudah kedaluwarsa. Ambil ulang lewat Cookie-Editor.
 
-**Playwright browser tidak terbuka:**
+**`ERROR: Lexicon InSet tidak ditemukan`**
+Unduh `positive.tsv` dan `negative.tsv` ke folder `lexicon/` (lihat Instalasi #4).
+
+**`BERHENTI: File berlabel sudah ada`**
+Perlindungan agar koreksi manual tidak tertimpa. Backup dulu, lalu tambahkan `--force`.
+
+**Browser tidak terbuka saat scraping**
 ```bash
 playwright install chromium
 ```
+Scraper membutuhkan tampilan layar — tidak bisa dijalankan lewat SSH tanpa display.
+
+**Hasil preprocessing tinggal sedikit**
+Wajar — sekitar 57% hasil scraping bukan Bahasa Indonesia. Scrape lebih banyak
+dengan `--max` yang lebih besar.
+
+---
+
+## Referensi
+
+- Rennie, J.D.M., Shih, L., Teevan, J., & Karger, D.R. (2003). *Tackling the Poor
+  Assumptions of Naive Bayes Text Classifiers.* ICML, 616–623.
+- Koto, F., & Rahmaningtyas, G.Y. (2017). *InSet Lexicon: Evaluation of a Word List
+  for Indonesian Sentiment Analysis in Microblogs.* IALP.
+  https://github.com/fajri91/InSet
+- Landis, J.R., & Koch, G.G. (1977). *The Measurement of Observer Agreement for
+  Categorical Data.* Biometrics, 33(1), 159–174.
+- Dokumentasi scikit-learn: https://scikit-learn.org/stable/modules/naive_bayes.html
